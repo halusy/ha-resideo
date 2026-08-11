@@ -146,6 +146,13 @@ already scrubbed — perfect for bug reports.
 **Filing an issue?** Bring receipts: the Home Assistant and integration versions, the
 diagnostics file, and a debug log covering the moment things went sideways.
 
+**Sign-in fails with a CAPTCHA.** Resideo's sign-in occasionally decides a login looks like a
+bot and demands a CAPTCHA, which Home Assistant has no way to solve — the form will say so.
+It's not your password. Use the **Paste a refresh token** option instead: grab a
+`refresh_token` by proxying `login.resideo.com`, and the integration skips the interactive
+sign-in entirely. Ordinary bad credentials get their own distinct message, so the two are never
+confused.
+
 **"Cannot connect" during setup** usually means a firewall or proxy is eating outbound
 WebSockets to `*.service.signalr.net`. The stream isn't optional, so un-block it and try
 again.

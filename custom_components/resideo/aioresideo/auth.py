@@ -46,9 +46,42 @@ from .const import (
 )
 from .exceptions import ResideoAuthError, ResideoConnectionError
 
+# Normalized Auth0 error codes the callers act on; every other code is passed through
+# verbatim (``invalid_captcha``, ``too_many_attempts``, ``blocked_user``, ``mfa_required``, ...).
+ERROR_INVALID_CREDENTIALS = "invalid_credentials"
+
+# Auth0 spells "those credentials were rejected" differently per endpoint and flow.
+_CREDENTIAL_CODES = frozenset({"invalid_user_password", "invalid_grant", "invalid_credentials"})
+
 
 def _b64url(raw: bytes) -> str:
     return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def _auth0_error(body: str) -> tuple[str | None, str | None]:
+    """Extract a normalized ``(code, description)`` from an Auth0 error response body.
+
+    Auth0 answers ``/usernamepassword/login`` with JSON such as ``{"code": "invalid_captcha",
+    "description": "Invalid captcha value"}`` — bot detection rejects the request *before*
+    credentials are evaluated, so a captcha block must not be reported as a bad password. The
+    classic Universal Login can also hand back an HTML error page, hence the substring fallback.
+    """
+    code: str | None = None
+    description: str | None = None
+    try:
+        payload = json.loads(body)
+    except (TypeError, ValueError):
+        payload = None
+    if isinstance(payload, dict):
+        raw_code = payload.get("code") or payload.get("name") or payload.get("error")
+        raw_desc = payload.get("description") or payload.get("error_description")
+        code = str(raw_code) if raw_code else None
+        description = str(raw_desc) if raw_desc else None
+    if code in _CREDENTIAL_CODES:
+        code = ERROR_INVALID_CREDENTIALS
+    elif code is None and ("Wrong email or password" in body or "invalid_grant" in body):
+        code = ERROR_INVALID_CREDENTIALS
+    return code, description
 
 
 def decode_jwt_claims(token: str | None) -> dict[str, Any] | None:
@@ -107,20 +140,29 @@ class ResideoAuth:
                     allow_redirects=False,
                 ) as r:
                     if r.status != 302:
-                        raise ResideoAuthError(f"step1 /authorize expected 302, got {r.status}")
+                        raise ResideoAuthError(
+                            f"step1 /authorize expected 302, got {r.status}",
+                            step="authorize",
+                            status=r.status,
+                        )
                     location = r.headers.get("Location", "")
                 auth0_state = parse_qs(urlparse(location).query).get("state", [None])[0]
                 if not auth0_state:
-                    raise ResideoAuthError("step1 no `state` in redirect")
+                    raise ResideoAuthError("step1 no `state` in redirect", step="authorize")
 
                 # Step 2 -- /login page sets the `_csrf` cookie --------------------
                 async with s.get(AUTH0_LOGIN_PAGE_URL, params={"state": auth0_state}) as r:
                     if r.status != 200:
-                        raise ResideoAuthError(f"step2 /login page returned {r.status}")
+                        raise ResideoAuthError(
+                            f"step2 /login page returned {r.status}",
+                            step="login-page",
+                            status=r.status,
+                        )
                 csrf = next((m.value for m in s.cookie_jar if m.key == "_csrf"), None)
                 if not csrf:
                     raise ResideoAuthError(
-                        "step2 no `_csrf` cookie (tenant may use New Universal Login)"
+                        "step2 no `_csrf` cookie (tenant may use New Universal Login)",
+                        step="login-page",
                     )
 
                 # Step 3 -- submit credentials -> HTML form w/ wresult/wctx --------
@@ -148,14 +190,29 @@ class ResideoAuth:
                 ) as r:
                     status = r.status
                     body = await r.text()
-                if status != 200 or "Wrong email or password" in body or "invalid_grant" in body:
-                    if "Wrong email or password" in body or "invalid_grant" in body:
-                        raise ResideoAuthError("Invalid email or password")
-                    raise ResideoAuthError(f"step3 /usernamepassword/login returned {status}")
+                code, description = _auth0_error(body)
+                if status != 200 or code == ERROR_INVALID_CREDENTIALS:
+                    if code == ERROR_INVALID_CREDENTIALS:
+                        raise ResideoAuthError(
+                            "Invalid email or password",
+                            step="credentials",
+                            status=status,
+                            code=code,
+                        )
+                    detail = f" — {description}" if description else ""
+                    raise ResideoAuthError(
+                        f"step3 /usernamepassword/login returned {status}"
+                        f"{f' ({code})' if code else ''}{detail}",
+                        step="credentials",
+                        status=status,
+                        code=code,
+                    )
                 m = re.search(r'name="wresult"\s+value="([^"]+)"', body)
                 if not m:
                     raise ResideoAuthError(
-                        "step3 could not extract `wresult` (tenant may use New Universal Login)"
+                        "step3 could not extract `wresult` (tenant may use New Universal Login)",
+                        step="credentials",
+                        status=status,
                     )
                 wresult = html.unescape(m.group(1))
                 mc = re.search(r'name="wctx"\s+value="([^"]+)"', body)
@@ -173,35 +230,43 @@ class ResideoAuth:
                 ) as r:
                     if r.status != 302:
                         raise ResideoAuthError(
-                            f"step4 /login/callback expected 302, got {r.status}"
+                            f"step4 /login/callback expected 302, got {r.status}",
+                            step="callback",
+                            status=r.status,
                         )
                     resume_url = r.headers.get("Location", "")
                 if not resume_url:
-                    raise ResideoAuthError("step4 no resume `Location`")
+                    raise ResideoAuthError("step4 no resume `Location`", step="callback")
                 if not resume_url.startswith("http"):
                     resume_url = AUTH0_BASE_URL + resume_url
 
                 # Step 5 -- resume -> redirect to redirect_uri?code=... ------------
                 async with s.get(resume_url, allow_redirects=False) as r:
                     if r.status != 302:
-                        raise ResideoAuthError(f"step5 resume expected 302, got {r.status}")
+                        raise ResideoAuthError(
+                            f"step5 resume expected 302, got {r.status}",
+                            step="resume",
+                            status=r.status,
+                        )
                     location = r.headers.get("Location", "")
                 q = parse_qs(urlparse(location).query)
-                code = q.get("code", [None])[0]
-                if not code:
+                auth_code = q.get("code", [None])[0]
+                if not auth_code:
                     raise ResideoAuthError(
                         f"step5 no `code`: {q.get('error', ['?'])[0]} - "
-                        f"{q.get('error_description', ['?'])[0]}"
+                        f"{q.get('error_description', ['?'])[0]}",
+                        step="resume",
+                        code=q.get("error", [None])[0],
                     )
                 if q.get("state", [None])[0] != state:
-                    raise ResideoAuthError("step5 state mismatch")
+                    raise ResideoAuthError("step5 state mismatch", step="resume")
 
                 # Step 6 -- exchange code (+ PKCE verifier) for tokens -------------
                 async with s.post(
                     OAUTH_TOKEN_URL,
                     json={
                         "client_id": OAUTH_CLIENT_ID,
-                        "code": code,
+                        "code": auth_code,
                         "redirect_uri": REDIRECT_URI,
                         "code_verifier": code_verifier,
                         "grant_type": "authorization_code",
@@ -213,8 +278,12 @@ class ResideoAuth:
                 ) as r:
                     if r.status != 200:
                         text = await r.text()
+                        token_code, _ = _auth0_error(text)
                         raise ResideoAuthError(
-                            f"step6 token exchange returned {r.status}: {text[:200]}"
+                            f"step6 token exchange returned {r.status}: {text[:200]}",
+                            step="token",
+                            status=r.status,
+                            code=token_code,
                         )
                     return await r.json(content_type=None)
             except (aiohttp.ClientError, TimeoutError) as err:
@@ -233,11 +302,24 @@ class ResideoAuth:
                 },
                 headers={"Content-Type": "application/json", "User-Agent": WEB_USER_AGENT},
             ) as r:
-                if r.status == 401:
-                    raise ResideoAuthError("Invalid or expired refresh token")
                 if r.status != 200:
                     text = await r.text()
-                    raise ResideoAuthError(f"refresh failed {r.status}: {text[:200]}")
+                    code, description = _auth0_error(text)
+                    if r.status == 401:
+                        raise ResideoAuthError(
+                            "Invalid or expired refresh token"
+                            f"{f' ({code})' if code else ''}"
+                            f"{f': {description}' if description else ''}",
+                            step="refresh",
+                            status=r.status,
+                            code=code,
+                        )
+                    raise ResideoAuthError(
+                        f"refresh failed {r.status}: {text[:200]}",
+                        step="refresh",
+                        status=r.status,
+                        code=code,
+                    )
                 return await r.json(content_type=None)
         except (aiohttp.ClientError, TimeoutError) as err:
             raise ResideoConnectionError(f"token refresh transport error: {err}") from err

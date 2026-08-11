@@ -38,6 +38,29 @@ STEP_LOGIN_SCHEMA = vol.Schema(
 )
 STEP_MANUAL_SCHEMA = vol.Schema({vol.Required(CONF_REFRESH_TOKEN): str})
 
+# Auth0 error code -> form-error key. Anything unrecognised (including a failure in the
+# login flow's own mechanics) falls to ``login_failed`` rather than blaming the credentials.
+_AUTH_ERROR_KEYS = {
+    "invalid_credentials": "invalid_auth",
+    "invalid_captcha": "captcha_required",
+    "too_many_attempts": "too_many_attempts",
+    "blocked_user": "too_many_attempts",
+}
+
+
+def _auth_error(err: ResideoAuthError, *, token_path: bool = False) -> tuple[str, str]:
+    """Map an auth failure to a ``(form-error key, detail)`` pair.
+
+    ``detail`` is interpolated into the message so a screenshot of the form is enough to
+    diagnose the failure — the whole point being that "Invalid authentication" alone is not.
+    """
+    key = _AUTH_ERROR_KEYS.get(err.code or "", "login_failed")
+    if token_path and key in ("invalid_auth", "login_failed"):
+        # A pasted refresh token was rejected; nothing to say about an email/password.
+        key = "invalid_token"
+    detail = ": ".join(part for part in (err.step, err.code) if part) or str(err)
+    return key, detail
+
 
 class ResideoConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Resideo."""
@@ -55,14 +78,16 @@ class ResideoConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Email/password login via aioresideo (Auth0)."""
         errors: dict[str, str] = {}
+        detail = ""
         if user_input is not None:
             session = async_get_clientsession(self.hass)
             try:
                 tokens = await ResideoAuth(session).login(
                     user_input[CONF_EMAIL], user_input[CONF_PASSWORD]
                 )
-            except ResideoAuthError:
-                errors["base"] = "invalid_auth"
+            except ResideoAuthError as err:
+                errors["base"], detail = _auth_error(err)
+                _LOGGER.debug("Resideo login failed (%s): %s", errors["base"], err)
             except (ResideoConnectionError, ResideoError):
                 errors["base"] = "cannot_connect"
             except Exception:
@@ -75,7 +100,10 @@ class ResideoConfigFlow(ConfigFlow, domain=DOMAIN):
                     email=user_input[CONF_EMAIL],
                 )
         return self.async_show_form(
-            step_id="login", data_schema=STEP_LOGIN_SCHEMA, errors=errors
+            step_id="login",
+            data_schema=STEP_LOGIN_SCHEMA,
+            errors=errors,
+            description_placeholders={"detail": detail},
         )
 
     async def async_step_manual(
@@ -83,14 +111,16 @@ class ResideoConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Manual refresh-token entry."""
         errors: dict[str, str] = {}
+        detail = ""
         if user_input is not None:
             session = async_get_clientsession(self.hass)
             refresh_token = user_input[CONF_REFRESH_TOKEN]
             api = Resideo(session, refresh_token=refresh_token)
             try:
                 await api.client.async_ensure_token()  # validate the token works
-            except ResideoAuthError:
-                errors["base"] = "invalid_auth"
+            except ResideoAuthError as err:
+                errors["base"], detail = _auth_error(err, token_path=True)
+                _LOGGER.debug("Resideo token validation failed: %s", err)
             except (ResideoConnectionError, ResideoError):
                 errors["base"] = "cannot_connect"
             except Exception:
@@ -103,7 +133,10 @@ class ResideoConfigFlow(ConfigFlow, domain=DOMAIN):
                     access_token=api.tokens.get("access_token"),
                 )
         return self.async_show_form(
-            step_id="manual", data_schema=STEP_MANUAL_SCHEMA, errors=errors
+            step_id="manual",
+            data_schema=STEP_MANUAL_SCHEMA,
+            errors=errors,
+            description_placeholders={"detail": detail},
         )
 
     async def async_step_reauth(

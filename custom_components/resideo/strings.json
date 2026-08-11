@@ -34,7 +34,11 @@
       }
     },
     "error": {
-      "invalid_auth": "Invalid authentication",
+      "invalid_auth": "Invalid email or password.",
+      "invalid_token": "Resideo rejected that refresh token ({detail}) — it may be expired or revoked. Grab a fresh one, or sign in with your email and password.",
+      "captcha_required": "Resideo is asking for a CAPTCHA ({detail}), which Home Assistant cannot solve. Use the \"Paste a refresh token\" option instead.",
+      "too_many_attempts": "Too many sign-in attempts — Resideo has temporarily blocked this account or IP address. Wait a while and try again, or use the \"Paste a refresh token\" option.",
+      "login_failed": "Sign-in with Resideo failed ({detail}). Enable debug logging for the full response, or use the \"Paste a refresh token\" option.",
       "cannot_connect": "Failed to connect",
       "unknown": "Unexpected error"
     },

@@ -61,7 +61,24 @@ async def test_login_creates_entry(hass: HomeAssistant) -> None:
 @pytest.mark.parametrize(
     ("raised", "error"),
     [
-        (ResideoAuthError("wrong password"), "invalid_auth"),
+        # Only a genuinely rejected credential may be reported as bad credentials.
+        (
+            ResideoAuthError("nope", step="credentials", code="invalid_credentials"),
+            "invalid_auth",
+        ),
+        # Auth0 bot detection rejects the request before credentials are evaluated.
+        (
+            ResideoAuthError("captcha", step="credentials", code="invalid_captcha"),
+            "captcha_required",
+        ),
+        (
+            ResideoAuthError("slow down", step="credentials", code="too_many_attempts"),
+            "too_many_attempts",
+        ),
+        (ResideoAuthError("blocked", code="blocked_user"), "too_many_attempts"),
+        # A break in the flow's own mechanics is not the user's password.
+        (ResideoAuthError("no `_csrf` cookie", step="login-page"), "login_failed"),
+        (ResideoAuthError("bare"), "login_failed"),
         (ResideoConnectionError("timeout"), "cannot_connect"),
         (RuntimeError("boom"), "unknown"),
     ],
@@ -77,6 +94,8 @@ async def test_login_errors_then_recovers(
         )
     assert result["type"] is FlowResultType.FORM
     assert result["errors"] == {"base": error}
+    # The form always carries a `detail` placeholder; the messages interpolate it.
+    assert "detail" in result["description_placeholders"]
 
     # The same flow recovers on a subsequent valid submission.
     with (
@@ -137,13 +156,19 @@ async def test_manual_token_invalid(hass: HomeAssistant) -> None:
         result["flow_id"], {"next_step_id": "manual"}
     )
     api = _mock_manual_api()
-    api.client.async_ensure_token = AsyncMock(side_effect=ResideoAuthError("revoked"))
+    api.client.async_ensure_token = AsyncMock(
+        side_effect=ResideoAuthError(
+            "revoked", step="refresh", status=401, code="invalid_credentials"
+        )
+    )
     with patch("custom_components.resideo.config_flow.Resideo", return_value=api):
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"], {CONF_REFRESH_TOKEN: "bad-token"}
         )
     assert result["type"] is FlowResultType.FORM
-    assert result["errors"] == {"base": "invalid_auth"}
+    # A pasted token was rejected — never phrase that as a bad email/password.
+    assert result["errors"] == {"base": "invalid_token"}
+    assert result["description_placeholders"]["detail"] == "refresh: invalid_credentials"
 
 
 async def test_duplicate_account_aborts(

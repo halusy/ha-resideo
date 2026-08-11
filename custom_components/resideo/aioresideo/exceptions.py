@@ -10,7 +10,25 @@ class ResideoError(Exception):
 
 
 class ResideoAuthError(ResideoError):
-    """Authentication / token failure (HTTP 401, invalid credentials, expired refresh token)."""
+    """Authentication / token failure (HTTP 401, invalid credentials, expired refresh token).
+
+    Carries the failing ``step`` of the Auth0 flow, the HTTP ``status``, and the normalized
+    Auth0 error ``code`` (e.g. ``invalid_captcha``) when the response supplied one, so callers
+    can tell "wrong password" apart from "the flow itself broke".
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        step: str | None = None,
+        status: int | None = None,
+        code: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.step = step
+        self.status = status
+        self.code = code
 
 
 class ResideoConnectionError(ResideoError):
