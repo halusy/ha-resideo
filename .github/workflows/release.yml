@@ -27,6 +27,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           token: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
+          # Full history + tags: the notes step needs `git describe` to find the previous tag
+          # and `git log` to walk the range. The default shallow clone has neither.
+          fetch-depth: 0
       - name: Set up Python 3.13
         uses: actions/setup-python@v5
         with:
@@ -49,10 +52,35 @@ jobs:
         run: |
           git push origin HEAD:${{ github.ref_name }}
           git push origin --tags
+      - name: Seed draft notes from the commit log
+        id: notes
+        # GitHub's generate_release_notes builds from merged PRs; this repo commits straight to
+        # main, so it always produced an empty body. Seed the draft with the actual commits
+        # instead — raw material to rewrite into user-facing notes before publishing.
+        run: |
+          # HEAD is the bump commit created above, so the previous tag is found from HEAD^.
+          PREV=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$PREV" ]; then
+            RANGE="$PREV..HEAD"
+            COMPARE="https://github.com/${{ github.repository }}/compare/$PREV...v${{ steps.bump.outputs.version }}"
+          else
+            RANGE="HEAD"
+            COMPARE="https://github.com/${{ github.repository }}/commits/v${{ steps.bump.outputs.version }}"
+          fi
+          {
+            echo "notes<<RELEASE_NOTES_EOF"
+            echo "> [!IMPORTANT]"
+            echo "> Draft — replace with user-facing notes before publishing."
+            echo
+            git log --format='- %s' "$RANGE" | grep -v '^- Bump version' || true
+            echo
+            echo "**Full Changelog**: $COMPARE"
+            echo "RELEASE_NOTES_EOF"
+          } >> "$GITHUB_OUTPUT"
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.bump.outputs.version }}
           name: Release v${{ steps.bump.outputs.version }}
           draft: true
-          generate_release_notes: true
+          body: ${{ steps.notes.outputs.notes }}
