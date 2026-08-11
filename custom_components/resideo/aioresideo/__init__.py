@@ -13,7 +13,13 @@ from typing import Any
 
 import aiohttp
 
-from .auth import ResideoAuth, decode_jwt_claims
+from .auth import (
+    AuthorizeRequest,
+    ResideoAuth,
+    build_authorize_url,
+    decode_jwt_claims,
+    parse_authorize_redirect,
+)
 from .client import ResideoClient, TokenUpdatedCallback
 from .exceptions import (
     ResideoApiError,
@@ -187,6 +193,7 @@ class Resideo:
 
 __all__ = [
     "LIVE_FEED_MERGED_PROPERTIES",
+    "AuthorizeRequest",
     "ConnectedCallback",
     "ErrorCallback",
     "EventCallback",
@@ -213,6 +220,8 @@ __all__ = [
     "TokenUpdatedCallback",
     "__version__",
     "apply_live_feed",
+    "build_authorize_url",
     "decode_jwt_claims",
+    "parse_authorize_redirect",
     "parse_event",
 ]

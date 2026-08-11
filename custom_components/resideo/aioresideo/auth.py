@@ -21,8 +21,9 @@ import html
 import json
 import re
 import secrets
+from dataclasses import dataclass
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 
 import aiohttp
 
@@ -96,6 +97,91 @@ def decode_jwt_claims(token: str | None) -> dict[str, Any] | None:
         return None
 
 
+@dataclass(frozen=True, slots=True)
+class AuthorizeRequest:
+    """A pending browser authorization: where to send the user, and what to check on return.
+
+    ``code_verifier`` and ``state`` must survive until the user pastes the redirect back,
+    so the caller has to hold this between config-flow steps.
+    """
+
+    url: str
+    code_verifier: str
+    state: str
+
+
+def build_authorize_url() -> AuthorizeRequest:
+    """Build a PKCE ``/authorize`` URL for the user to open in their own browser.
+
+    Same parameters the headless flow uses, so Auth0 behaves identically — the difference
+    is only who drives the page. A human can satisfy a bot-detection CAPTCHA; a
+    ``ClientSession`` cannot, which is the whole reason this path exists.
+    """
+    code_verifier = _b64url(secrets.token_bytes(32))
+    code_challenge = _b64url(hashlib.sha256(code_verifier.encode("ascii")).digest())
+    state = _b64url(secrets.token_bytes(32))
+    query = urlencode(
+        {
+            "state": state,
+            "scope": SCOPE,
+            "signUpUrl": SIGN_UP_URL,
+            "client_id": OAUTH_CLIENT_ID,
+            "code_challenge_method": "S256",
+            "response_type": "code",
+            "max_age": "0",
+            "audience": AUDIENCE,
+            "redirect_uri": REDIRECT_URI,
+            "code_challenge": code_challenge,
+            "prompt": "login",
+            "auth0Client": AUTH0_CLIENT_APP,
+        }
+    )
+    return AuthorizeRequest(f"{AUTH0_AUTHORIZE_URL}?{query}", code_verifier, state)
+
+
+def parse_authorize_redirect(pasted: str, expected_state: str) -> str:
+    """Pull the authorization ``code`` out of whatever the user pasted back.
+
+    Accepts the full ``com.resideo.firstalert://…?code=…&state=…`` redirect (what the
+    browser shows when it cannot open the app's custom scheme), any URL carrying the same
+    query, or a bare code. ``state`` is verified whenever the paste carries one.
+    """
+    pasted = pasted.strip()
+    if not pasted:
+        raise ResideoAuthError("Nothing pasted", step="browser", code="invalid_code")
+
+    query = parse_qs(urlparse(pasted).query) if "?" in pasted else {}
+    if not query and "=" in pasted:
+        # A bare query string, e.g. copied out of devtools without the scheme.
+        query = parse_qs(pasted.lstrip("?"))
+
+    if not query:
+        # Treat it as a bare code; nothing to cross-check but the exchange will reject junk.
+        return pasted
+
+    if error := query.get("error", [None])[0]:
+        raise ResideoAuthError(
+            f"Resideo returned an error: {error} - {query.get('error_description', ['?'])[0]}",
+            step="browser",
+            code=error,
+        )
+
+    code = query.get("code", [None])[0]
+    if not code:
+        raise ResideoAuthError(
+            "That URL carries no `code` parameter",
+            step="browser",
+            code="invalid_code",
+        )
+    if (returned := query.get("state", [None])[0]) and returned != expected_state:
+        raise ResideoAuthError(
+            "The pasted redirect belongs to a different sign-in attempt",
+            step="browser",
+            code="state_mismatch",
+        )
+    return code
+
+
 class ResideoAuth:
     """Drives the Auth0 flows (login + refresh) for the Resideo consumer API."""
 
@@ -104,6 +190,42 @@ class ResideoAuth:
         # ``login`` flow uses its own cookie-jar session (it needs the ``_csrf`` cookie),
         # so it never pollutes a shared session's cookie state.
         self._session = session
+
+    async def exchange_code(self, code: str, code_verifier: str) -> dict[str, Any]:
+        """Exchange an authorization code (+ PKCE verifier) for tokens.
+
+        Step 6 of the headless flow, and the only step the browser path needs.
+        """
+        try:
+            async with self._session.post(
+                OAUTH_TOKEN_URL,
+                json={
+                    "client_id": OAUTH_CLIENT_ID,
+                    "code": code,
+                    "redirect_uri": REDIRECT_URI,
+                    "code_verifier": code_verifier,
+                    "grant_type": "authorization_code",
+                },
+                headers={
+                    "Auth0-Client": AUTH0_CLIENT_APP,
+                    "Content-Type": "application/json",
+                    "User-Agent": WEB_USER_AGENT,
+                },
+            ) as r:
+                if r.status != 200:
+                    text = await r.text()
+                    token_code, description = _auth0_error(text)
+                    raise ResideoAuthError(
+                        f"token exchange returned {r.status}"
+                        f"{f' ({token_code})' if token_code else ''}"
+                        f": {description or text[:200]}",
+                        step="token",
+                        status=r.status,
+                        code=token_code,
+                    )
+                return await r.json(content_type=None)
+        except (aiohttp.ClientError, TimeoutError) as err:
+            raise ResideoConnectionError(f"token exchange transport error: {err}") from err
 
     async def login(self, email: str, password: str) -> dict[str, Any]:
         """Run the full Auth0 email/password flow; return the token response dict.
@@ -260,35 +382,14 @@ class ResideoAuth:
                     )
                 if q.get("state", [None])[0] != state:
                     raise ResideoAuthError("step5 state mismatch", step="resume")
-
-                # Step 6 -- exchange code (+ PKCE verifier) for tokens -------------
-                async with s.post(
-                    OAUTH_TOKEN_URL,
-                    json={
-                        "client_id": OAUTH_CLIENT_ID,
-                        "code": auth_code,
-                        "redirect_uri": REDIRECT_URI,
-                        "code_verifier": code_verifier,
-                        "grant_type": "authorization_code",
-                    },
-                    headers={
-                        "Auth0-Client": AUTH0_CLIENT_APP,
-                        "Content-Type": "application/json",
-                    },
-                ) as r:
-                    if r.status != 200:
-                        text = await r.text()
-                        token_code, _ = _auth0_error(text)
-                        raise ResideoAuthError(
-                            f"step6 token exchange returned {r.status}: {text[:200]}",
-                            step="token",
-                            status=r.status,
-                            code=token_code,
-                        )
-                    return await r.json(content_type=None)
             except (aiohttp.ClientError, TimeoutError) as err:
                 # aiohttp raises bare TimeoutError (not a ClientError) on timeout expiry.
                 raise ResideoConnectionError(f"Auth0 login transport error: {err}") from err
+
+        # Step 6 -- exchange code (+ PKCE verifier) for tokens -----------------
+        # Outside the cookie-jar session: the exchange is stateless, and this is exactly
+        # what the browser path calls once the user pastes their redirect back.
+        return await self.exchange_code(auth_code, code_verifier)
 
     async def refresh(self, refresh_token: str) -> dict[str, Any]:
         """Exchange a refresh token for a fresh access token (+ rotated refresh token)."""

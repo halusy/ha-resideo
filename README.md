@@ -106,8 +106,11 @@ the async API client (`aioresideo`) is vendored inside it, and the only runtime 
 Or: Settings → Devices & Services → **Add Integration** → **Resideo**. Sign in however you
 like:
 
-- **Login** — your everyday Resideo email/password (sent only to Resideo's own sign-in
-  endpoint; only the resulting refresh token gets stored).
+- **Email and password** — your everyday Resideo credentials (sent only to Resideo's own
+  sign-in endpoint; only the resulting refresh token gets stored). Try this first.
+- **Sign in with your browser** — opens Resideo's own sign-in page so you log in there
+  instead, then you paste the redirect back. Slower, but it's the one that works when
+  Resideo's bot detection blocks the direct login (see Troubleshooting).
 - **Refresh token** — already have an Auth0 refresh token and prefer pasting to typing? Go
   for it.
 
@@ -146,12 +149,16 @@ already scrubbed — perfect for bug reports.
 **Filing an issue?** Bring receipts: the Home Assistant and integration versions, the
 diagnostics file, and a debug log covering the moment things went sideways.
 
-**Sign-in fails with a CAPTCHA.** Resideo's sign-in occasionally decides a login looks like a
-bot and demands a CAPTCHA, which Home Assistant has no way to solve — the form will say so.
-It's not your password. Use the **Paste a refresh token** option instead: grab a
-`refresh_token` by proxying `login.resideo.com`, and the integration skips the interactive
-sign-in entirely. Ordinary bad credentials get their own distinct message, so the two are never
-confused.
+**Sign-in fails with a CAPTCHA.** Resideo's sign-in sometimes decides a login looks like a bot
+and demands a CAPTCHA, which Home Assistant has no way to solve — the form will say so. It's
+not your password; ordinary bad credentials get their own distinct message, so the two are
+never confused.
+
+Use **Sign in with your browser** instead. It hands you Resideo's real sign-in page, you log in
+there like any other website, and you paste the resulting redirect back into Home Assistant. In
+practice the CAPTCHA doesn't even appear — Resideo's bot detection is reacting to the headless
+login, not to you. The step includes click-by-click instructions; the one thing that trips
+people up is that your browser's Network panel has to be open **before** you sign in.
 
 **"Cannot connect" during setup** usually means a firewall or proxy is eating outbound
 WebSockets to `*.service.signalr.net`. The stream isn't optional, so un-block it and try

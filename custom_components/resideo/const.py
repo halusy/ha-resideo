@@ -20,4 +20,7 @@ MANUFACTURER = "Resideo"
 # --- config entry data keys --------------------------------------------------
 CONF_REFRESH_TOKEN = "refresh_token"
 
+# Config-flow-only field: the redirect the user pastes back from the browser sign-in.
+CONF_REDIRECT_URL = "redirect_url"
+
 # Reads are push-only (Azure SignalR; see coordinator.py) — there is no periodic poll interval.

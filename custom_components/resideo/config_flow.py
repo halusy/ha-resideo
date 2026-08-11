@@ -1,8 +1,10 @@
 """Config flow for the Resideo integration.
 
-Two auth paths against the consumer API (no developer account):
-  - ``login``  — email/password via ``aioresideo.ResideoAuth`` (Auth0).
-  - ``manual`` — paste a refresh token grabbed by proxying ``login.resideo.com``.
+Three auth paths against the consumer API (no developer account):
+  - ``login``   — email/password via ``aioresideo.ResideoAuth`` (Auth0), headless.
+  - ``browser`` — open Auth0's own sign-in page, paste the redirect back. The only path
+    that survives a bot-detection CAPTCHA, since a human drives the page.
+  - ``manual``  — paste a refresh token grabbed by proxying ``login.resideo.com``.
 
 Entries are deduped by the Auth0 ``sub`` claim of the access token (the account identity),
 which also guards re-auth against silently rewiring an entry to a different account.
@@ -23,13 +25,20 @@ from homeassistant.config_entries import (
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .aioresideo import Resideo, ResideoAuth, decode_jwt_claims
+from .aioresideo import (
+    AuthorizeRequest,
+    Resideo,
+    ResideoAuth,
+    build_authorize_url,
+    decode_jwt_claims,
+    parse_authorize_redirect,
+)
 from .aioresideo.exceptions import (
     ResideoAuthError,
     ResideoConnectionError,
     ResideoError,
 )
-from .const import CONF_REFRESH_TOKEN, DOMAIN
+from .const import CONF_REDIRECT_URL, CONF_REFRESH_TOKEN, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -37,6 +46,9 @@ STEP_LOGIN_SCHEMA = vol.Schema(
     {vol.Required(CONF_EMAIL): str, vol.Required(CONF_PASSWORD): str}
 )
 STEP_MANUAL_SCHEMA = vol.Schema({vol.Required(CONF_REFRESH_TOKEN): str})
+STEP_BROWSER_SCHEMA = vol.Schema({vol.Required(CONF_REDIRECT_URL): str})
+
+AUTH_MENU = ["login", "browser", "manual"]
 
 # Auth0 error code -> form-error key. Anything unrecognised (including a failure in the
 # login flow's own mechanics) falls to ``login_failed`` rather than blaming the credentials.
@@ -45,6 +57,9 @@ _AUTH_ERROR_KEYS = {
     "invalid_captcha": "captcha_required",
     "too_many_attempts": "too_many_attempts",
     "blocked_user": "too_many_attempts",
+    # Browser path: the paste itself was wrong, not the account.
+    "invalid_code": "invalid_code",
+    "state_mismatch": "state_mismatch",
 }
 
 
@@ -67,11 +82,16 @@ class ResideoConfigFlow(ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
+    def __init__(self) -> None:
+        # Held between the two halves of the browser step: the user leaves to sign in,
+        # and the PKCE verifier + state must still be here when they paste the redirect.
+        self._authorize: AuthorizeRequest | None = None
+
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """First step: pick how to authenticate."""
-        return self.async_show_menu(step_id="user", menu_options=["login", "manual"])
+        return self.async_show_menu(step_id="user", menu_options=AUTH_MENU)
 
     async def async_step_login(
         self, user_input: dict[str, Any] | None = None
@@ -104,6 +124,50 @@ class ResideoConfigFlow(ConfigFlow, domain=DOMAIN):
             data_schema=STEP_LOGIN_SCHEMA,
             errors=errors,
             description_placeholders={"detail": detail},
+        )
+
+    async def async_step_browser(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Sign in via Auth0's own page in the user's browser, then paste the redirect back.
+
+        Auth0's bot detection can demand a CAPTCHA that a headless client cannot solve; here
+        the human drives the page, so the CAPTCHA is simply part of signing in. The redirect
+        lands on the mobile app's custom scheme, which the browser cannot open — the URL is
+        still in the address bar, and that is what gets pasted.
+        """
+        errors: dict[str, str] = {}
+        detail = ""
+        if self._authorize is None:
+            self._authorize = build_authorize_url()
+        if user_input is not None:
+            session = async_get_clientsession(self.hass)
+            try:
+                code = parse_authorize_redirect(
+                    user_input[CONF_REDIRECT_URL], self._authorize.state
+                )
+                tokens = await ResideoAuth(session).exchange_code(
+                    code, self._authorize.code_verifier
+                )
+            except ResideoAuthError as err:
+                errors["base"], detail = _auth_error(err)
+                _LOGGER.debug("Resideo browser sign-in failed (%s): %s", errors["base"], err)
+                # A spent or mismatched code can't be retried — start a fresh authorization.
+                self._authorize = build_authorize_url()
+            except (ResideoConnectionError, ResideoError):
+                errors["base"] = "cannot_connect"
+            except Exception:
+                _LOGGER.exception("Unexpected error during Resideo browser sign-in")
+                errors["base"] = "unknown"
+            else:
+                return await self._finish(
+                    tokens.get("refresh_token"), access_token=tokens.get("access_token")
+                )
+        return self.async_show_form(
+            step_id="browser",
+            data_schema=STEP_BROWSER_SCHEMA,
+            errors=errors,
+            description_placeholders={"url": self._authorize.url, "detail": detail},
         )
 
     async def async_step_manual(
@@ -148,10 +212,8 @@ class ResideoConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_reauth_confirm(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Pick how to re-authenticate (same two paths as setup)."""
-        return self.async_show_menu(
-            step_id="reauth_confirm", menu_options=["login", "manual"]
-        )
+        """Pick how to re-authenticate (same paths as setup)."""
+        return self.async_show_menu(step_id="reauth_confirm", menu_options=AUTH_MENU)
 
     async def _finish(
         self,

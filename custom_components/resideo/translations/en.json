@@ -6,6 +6,7 @@
         "description": "Choose how to connect to your Resideo account.",
         "menu_options": {
           "login": "Email and password",
+          "browser": "Sign in with your browser",
           "manual": "Paste a refresh token"
         }
       },
@@ -15,6 +16,13 @@
         "data": {
           "email": "Email",
           "password": "Password"
+        }
+      },
+      "browser": {
+        "title": "Sign in with your browser",
+        "description": "**1.** [**Open the Resideo sign-in page**]({url}) — but do not sign in yet.\n\n**2. In that new tab, open the Network panel before signing in.** The sign-in code appears once, in a single request; if Network is not already recording you will have to start over. Developer tools attach per tab, so it must be that tab:\n- Chrome / Edge: `F12` (Mac: `⌘⌥I`), then click **Network**\n- Firefox: `⌘⌥E` (Windows/Linux: `Ctrl+Shift+E`)\n- Safari: enable Settings → Advanced → \"Show features for web developers\", then `⌘⌥I` → **Network**\n\n**3. Now sign in.** Afterwards the page just sits there and the address bar does not change — that is expected, and means it worked.\n\n**4. Copy the last entry in the Network list** — greyed out / canceled, name starting `callback?code=`. Right-click → **Copy** → **Copy link address**.\n\n**5. Paste it below.** Just the entry's name works too.",
+        "data": {
+          "redirect_url": "Redirect address"
         }
       },
       "manual": {
@@ -29,6 +37,7 @@
         "description": "The stored credentials no longer work. Choose how to sign in again.",
         "menu_options": {
           "login": "Email and password",
+          "browser": "Sign in with your browser",
           "manual": "Paste a refresh token"
         }
       }
@@ -36,9 +45,11 @@
     "error": {
       "invalid_auth": "Invalid email or password.",
       "invalid_token": "Resideo rejected that refresh token ({detail}) — it may be expired or revoked. Grab a fresh one, or sign in with your email and password.",
-      "captcha_required": "Resideo is asking for a CAPTCHA ({detail}), which Home Assistant cannot solve. Use the \"Paste a refresh token\" option instead.",
-      "too_many_attempts": "Too many sign-in attempts — Resideo has temporarily blocked this account or IP address. Wait a while and try again, or use the \"Paste a refresh token\" option.",
-      "login_failed": "Sign-in with Resideo failed ({detail}). Enable debug logging for the full response, or use the \"Paste a refresh token\" option.",
+      "captcha_required": "Resideo is asking for a CAPTCHA ({detail}), which Home Assistant cannot solve. Use the \"Sign in with your browser\" option instead — you solve it there yourself.",
+      "too_many_attempts": "Too many sign-in attempts — Resideo has temporarily blocked this account or IP address. Wait a while and try again, or use the \"Sign in with your browser\" option.",
+      "login_failed": "Sign-in with Resideo failed ({detail}). Enable debug logging for the full response, or try the \"Sign in with your browser\" option.",
+      "invalid_code": "That does not look like the redirect address — it carries no sign-in code. Copy the whole `com.resideo.firstalert://...` address, including everything after the `?`.",
+      "state_mismatch": "That redirect belongs to an earlier sign-in attempt. Use the link above to start a fresh one.",
       "cannot_connect": "Failed to connect",
       "unknown": "Unexpected error"
     },

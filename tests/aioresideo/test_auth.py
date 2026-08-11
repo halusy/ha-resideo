@@ -10,6 +10,7 @@ reported to the user as a bad password.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from urllib.parse import parse_qs, urlparse
@@ -18,7 +19,12 @@ import aiohttp
 import pytest
 from aioresponses import CallbackResult, aioresponses
 
-from custom_components.resideo.aioresideo.auth import ResideoAuth
+from custom_components.resideo.aioresideo.auth import (
+    ResideoAuth,
+    _b64url,
+    build_authorize_url,
+    parse_authorize_redirect,
+)
 from custom_components.resideo.aioresideo.const import (
     AUTH0_BASE_URL,
     AUTH0_CALLBACK_URL,
@@ -208,3 +214,102 @@ async def test_transport_error_maps_to_connection_error(session) -> None:
         m.get(AUTHORIZE_RE, exception=aiohttp.ClientError("boom"))
         with pytest.raises(ResideoConnectionError):
             await ResideoAuth(session).login("a@b.com", "pw")
+
+
+# --- browser authorization flow ----------------------------------------------
+
+
+def test_build_authorize_url_carries_pkce_and_state() -> None:
+    """The URL must be openable by a human and verifiable when they come back."""
+    req = build_authorize_url()
+    q = parse_qs(urlparse(req.url).query)
+
+    assert req.url.startswith(f"{AUTH0_BASE_URL}/authorize?")
+    assert q["state"] == [req.state]
+    assert q["response_type"] == ["code"]
+    assert q["code_challenge_method"] == ["S256"]
+    assert q["redirect_uri"] == [REDIRECT_URI]
+    # The challenge is the S256 of the verifier we keep, never the verifier itself.
+    expected = _b64url(hashlib.sha256(req.code_verifier.encode("ascii")).digest())
+    assert q["code_challenge"] == [expected]
+    assert req.code_verifier not in req.url
+
+
+def test_build_authorize_url_is_unique_per_call() -> None:
+    assert build_authorize_url().state != build_authorize_url().state
+
+
+@pytest.mark.parametrize(
+    "pasted",
+    [
+        f"{REDIRECT_URI}?code=the-code&state=st",
+        f"  {REDIRECT_URI}?code=the-code&state=st  ",  # sloppy copy/paste
+        "https://login.resideo.com/whatever?code=the-code&state=st",
+        "?code=the-code&state=st",  # bare query, e.g. copied out of devtools
+        "the-code",  # bare code, no state to check
+    ],
+    ids=["custom-scheme", "whitespace", "https", "bare-query", "bare-code"],
+)
+def test_parse_authorize_redirect_accepts_what_users_actually_paste(pasted: str) -> None:
+    assert parse_authorize_redirect(pasted, "st") == "the-code"
+
+
+def test_parse_authorize_redirect_rejects_a_stale_attempt() -> None:
+    with pytest.raises(ResideoAuthError) as exc:
+        parse_authorize_redirect(f"{REDIRECT_URI}?code=c&state=other", "st")
+    assert exc.value.code == "state_mismatch"
+
+
+def test_parse_authorize_redirect_rejects_a_url_without_a_code() -> None:
+    with pytest.raises(ResideoAuthError) as exc:
+        parse_authorize_redirect("https://login.resideo.com/?foo=bar", "st")
+    assert exc.value.code == "invalid_code"
+
+
+def test_parse_authorize_redirect_surfaces_an_auth0_error_redirect() -> None:
+    """Auth0 reports a refused sign-in in the redirect itself, not just by HTTP status."""
+    with pytest.raises(ResideoAuthError) as exc:
+        parse_authorize_redirect(
+            f"{REDIRECT_URI}?error=access_denied&error_description=Nope&state=st", "st"
+        )
+    assert exc.value.code == "access_denied"
+    assert "Nope" in str(exc.value)
+
+
+def test_parse_authorize_redirect_rejects_an_empty_paste() -> None:
+    with pytest.raises(ResideoAuthError) as exc:
+        parse_authorize_redirect("   ", "st")
+    assert exc.value.code == "invalid_code"
+
+
+async def test_exchange_code_returns_tokens(session) -> None:
+    seen: dict = {}
+
+    def capture(url, **kwargs):
+        seen.update(kwargs["json"])
+        return CallbackResult(status=200, payload=TOKENS)
+
+    with mocked() as m:
+        m.post(OAUTH_TOKEN_URL, callback=capture)
+        assert await ResideoAuth(session).exchange_code("the-code", "verifier") == TOKENS
+
+    assert seen["grant_type"] == "authorization_code"
+    assert seen["code"] == "the-code"
+    assert seen["code_verifier"] == "verifier"
+    assert seen["redirect_uri"] == REDIRECT_URI
+
+
+async def test_exchange_code_surfaces_the_auth0_code(session) -> None:
+    """A reused or expired authorization code comes back as invalid_grant."""
+    body = json.dumps(
+        {"error": "invalid_grant", "error_description": "Invalid authorization code"}
+    )
+    with mocked() as m:
+        m.post(OAUTH_TOKEN_URL, status=403, body=body)
+        with pytest.raises(ResideoAuthError) as exc:
+            await ResideoAuth(session).exchange_code("spent", "verifier")
+
+    assert exc.value.step == "token"
+    assert exc.value.status == 403
+    assert exc.value.code == "invalid_credentials"
+    assert "Invalid authorization code" in str(exc.value)

@@ -5,17 +5,23 @@ from __future__ import annotations
 import base64
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.resideo.aioresideo.const import REDIRECT_URI
 from custom_components.resideo.aioresideo.exceptions import (
     ResideoAuthError,
     ResideoConnectionError,
 )
-from custom_components.resideo.const import CONF_REFRESH_TOKEN, DOMAIN
+from custom_components.resideo.const import (
+    CONF_REDIRECT_URL,
+    CONF_REFRESH_TOKEN,
+    DOMAIN,
+)
 
 from .conftest import SUB
 
@@ -118,6 +124,90 @@ async def test_login_without_refresh_token_aborts(hass: HomeAssistant) -> None:
         )
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "no_token"
+
+
+async def _start_browser_flow(hass: HomeAssistant, source: str = "user"):
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": source})
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"next_step_id": "browser"}
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "browser"
+    return result
+
+
+async def test_browser_flow_shows_an_authorize_url_then_creates_entry(
+    hass: HomeAssistant,
+) -> None:
+    """The user opens the URL, signs in (solving any CAPTCHA), and pastes the redirect."""
+    result = await _start_browser_flow(hass)
+    url = result["description_placeholders"]["url"]
+    assert url.startswith("https://login.resideo.com/authorize?")
+    state = parse_qs(urlparse(url).query)["state"][0]
+
+    with (
+        patch("custom_components.resideo.config_flow.ResideoAuth") as mock_auth,
+        patch("custom_components.resideo.async_setup_entry", return_value=True),
+    ):
+        mock_auth.return_value.exchange_code = AsyncMock(return_value=_tokens())
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {CONF_REDIRECT_URL: f"{REDIRECT_URI}?code=the-code&state={state}"},
+        )
+        # The code is exchanged with the verifier from the URL we handed out.
+        mock_auth.return_value.exchange_code.assert_awaited_once()
+        assert mock_auth.return_value.exchange_code.await_args.args[0] == "the-code"
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"] == {CONF_REFRESH_TOKEN: "new-refresh"}
+    assert result["result"].unique_id == SUB
+
+
+async def test_browser_flow_rejects_a_redirect_from_another_attempt(
+    hass: HomeAssistant,
+) -> None:
+    result = await _start_browser_flow(hass)
+    first_url = result["description_placeholders"]["url"]
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_REDIRECT_URL: f"{REDIRECT_URI}?code=c&state=stale"}
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": "state_mismatch"}
+    # A fresh authorization is issued, since the old one can no longer be completed.
+    assert result["description_placeholders"]["url"] != first_url
+
+
+async def test_browser_flow_rejects_a_paste_with_no_code(hass: HomeAssistant) -> None:
+    result = await _start_browser_flow(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_REDIRECT_URL: "https://login.resideo.com/?foo=bar"}
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": "invalid_code"}
+
+
+async def test_browser_flow_reauth_updates_entry(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Re-auth via the browser path — the escape hatch when a token dies behind a CAPTCHA."""
+    mock_config_entry.add_to_hass(hass)
+    result = await mock_config_entry.start_reauth_flow(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"next_step_id": "browser"}
+    )
+    state = parse_qs(urlparse(result["description_placeholders"]["url"]).query)["state"][0]
+    with (
+        patch("custom_components.resideo.config_flow.ResideoAuth") as mock_auth,
+        patch("custom_components.resideo.async_setup_entry", return_value=True),
+    ):
+        mock_auth.return_value.exchange_code = AsyncMock(return_value=_tokens())
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_REDIRECT_URL: f"{REDIRECT_URI}?code=c&state={state}"}
+        )
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reauth_successful"
+    assert mock_config_entry.data[CONF_REFRESH_TOKEN] == "new-refresh"
 
 
 def _mock_manual_api(sub: str = SUB, rotated: str = "rotated-refresh") -> MagicMock:
