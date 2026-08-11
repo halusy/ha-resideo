@@ -24,7 +24,7 @@ from homeassistant.components.climate import (
     HVACMode,
 )
 from homeassistant.components.climate.const import FAN_AUTO, FAN_ON, PRESET_NONE
-from homeassistant.const import ATTR_TEMPERATURE
+from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -129,8 +129,11 @@ class ResideoClimate(OptimisticWriteMixin, ResideoEntity, ClimateEntity):
 
     _attr_name = None  # use the device's own name
     _attr_translation_key = "thermostat"  # for preset_mode state-attribute translations
+    # API payloads are always °F, regardless of the thermostat's display unit or the app's
+    # unit preference (see ResideoConfiguration.temperature_units) — HA converts for display.
+    _attr_temperature_unit = UnitOfTemperature.FAHRENHEIT
     # Fallbacks when /configuration is unavailable. Normally hvac_modes / fan_modes /
-    # temperature_unit / min_temp / max_temp are derived live from device capabilities below.
+    # min_temp / max_temp are derived live from device capabilities below.
     _attr_hvac_modes = [HVACMode.OFF, HVACMode.HEAT, HVACMode.COOL, HVACMode.HEAT_COOL]
     _attr_fan_modes = _FAN_MODE_ORDER
 
@@ -185,10 +188,6 @@ class ResideoClimate(OptimisticWriteMixin, ResideoEntity, ClimateEntity):
         return features
 
     # --- capabilities derived from /configuration (with safe fallbacks) ------
-    @property
-    def temperature_unit(self) -> str:
-        return self.device_temperature_unit
-
     @property
     def hvac_modes(self) -> list[HVACMode]:
         config = self.configuration

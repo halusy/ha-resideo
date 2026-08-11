@@ -30,24 +30,27 @@ async def test_fahrenheit_device_units(hass: HomeAssistant, init_integration) ->
     assert climate.attributes["current_temperature"] == 76.0
 
 
-async def test_celsius_device_values_convert_correctly(
+async def test_celsius_faceplate_still_reports_fahrenheit(
     hass: HomeAssistant, mock_config_entry, mock_api, configuration_data
 ) -> None:
-    """A °C-configured device reports °C values; treating them as °F mis-converts.
+    """API payloads are °F even when ``TemperatureUnits`` says "C" (issue #2).
 
-    With HA displaying US-customary units, a native 76 °C must convert to 168.8 °F —
-    before the fix the sensor declared °F and would show 76.0.
+    ``TemperatureUnits`` is display-unit metadata only (verified live — see
+    ``ResideoConfiguration.temperature_units``); declaring °C native here double-converts:
+    a 26.7 °C room reported as 80 would show 176 °F.
     """
     configuration_data["Reported"]["TemperatureUnits"] = "C"
     await setup_integration(hass, mock_config_entry, mock_api)
 
     state = hass.states.get(eid(hass, "sensor", f"{MAC}_indoor_temperature"))
-    assert state.attributes["unit_of_measurement"] == "°F"  # display unit (US system)
-    assert float(state.state) == 168.8  # converted FROM native °C
+    assert state.attributes["unit_of_measurement"] == "°F"
+    assert float(state.state) == 76.0  # native °F, shown as-is (US system)
 
-    # The remote accessory temperature follows the same device unit.
     remote = hass.states.get(eid(hass, "sensor", f"{MAC}_room1_acc1_temperature"))
-    assert float(remote.state) == 165.2  # 74 °C -> °F
+    assert float(remote.state) == 74.0
+
+    climate = hass.states.get(eid(hass, "climate", f"{MAC}_climate"))
+    assert climate.attributes["current_temperature"] == 76.0
 
 
 async def test_diagnostic_sensors(hass: HomeAssistant, init_integration) -> None:

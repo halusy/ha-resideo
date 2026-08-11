@@ -83,17 +83,18 @@ async def test_validation_honors_pending_override_and_composes(
     }
 
 
-async def test_numbers_hidden_on_celsius_device(
+async def test_numbers_exist_on_celsius_faceplate_device(
     hass: HomeAssistant, mock_config_entry, mock_api, configuration_data
 ) -> None:
-    """°F-integer write semantics are unverified on Celsius devices — entities are hidden."""
+    """``TemperatureUnits: "C"`` is faceplate metadata; payloads and writes are °F for every
+    device, so the °F-writing controls exist regardless (issue #2)."""
     configuration_data["Reported"]["TemperatureUnits"] = "C"
     configuration_data["Reported"]["FreezeProtection"]["Configured"] = True
     await setup_integration(hass, mock_config_entry, mock_api)
 
     registry = er.async_get(hass)
-    assert not registry.async_get_entity_id("number", DOMAIN, f"{MAC}_heat_setpoint_min")
-    assert not registry.async_get_entity_id(
+    assert registry.async_get_entity_id("number", DOMAIN, f"{MAC}_heat_setpoint_min")
+    assert registry.async_get_entity_id(
         "number", DOMAIN, f"{MAC}_freeze_protection_low_limit"
     )
 

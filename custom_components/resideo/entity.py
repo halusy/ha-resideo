@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from homeassistant.const import UnitOfTemperature
 from homeassistant.core import CALLBACK_TYPE, callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -75,14 +74,6 @@ class ResideoEntity(CoordinatorEntity[ResideoDataUpdateCoordinator]):
         if not super().available or device is None:
             return False
         return device.online or not self._requires_device_online
-
-    @property
-    def device_temperature_unit(self) -> str:
-        """The device's configured display unit — the unit its temperatures are reported in."""
-        config = self.configuration
-        if config is not None and config.temperature_units == "C":
-            return UnitOfTemperature.CELSIUS
-        return UnitOfTemperature.FAHRENHEIT
 
     @property
     def device_info(self) -> DeviceInfo:

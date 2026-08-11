@@ -38,13 +38,6 @@ from .entity import OptimisticWriteMixin, ResideoEntity
 PARALLEL_UPDATES = 1
 
 
-def _writable_in_fahrenheit(d: ResideoDeviceData) -> bool:
-    """These commands write integer °F (verified live on an F device); the write semantics on
-    a Celsius-configured device are unknown, so hide the controls there rather than risk
-    writing garbage. Revisit when a C capture exists."""
-    return d.configuration.temperature_units != "C"
-
-
 @dataclass(frozen=True, kw_only=True)
 class ResideoNumberEntityDescription(NumberEntityDescription):
     """A writable numeric device setting."""
@@ -67,8 +60,7 @@ DEVICE_NUMBERS: tuple[ResideoNumberEntityDescription, ...] = (
         mode=NumberMode.BOX,
         value_fn=lambda d: d.configuration.freeze_protection_low_limit,
         set_fn=lambda api, mac, v: api.async_set_freeze_protection(mac, v),
-        exists_fn=lambda d: d.configuration.freeze_protection_configured
-        and _writable_in_fahrenheit(d),
+        exists_fn=lambda d: d.configuration.freeze_protection_configured,
     ),
 )
 
@@ -115,7 +107,7 @@ def _limit_desc(
         native_step=1,
         mode=NumberMode.BOX,
         value_fn=value_fn,
-        exists_fn=lambda d: value_fn(d) is not None and _writable_in_fahrenheit(d),
+        exists_fn=lambda d: value_fn(d) is not None,
     )
 
 

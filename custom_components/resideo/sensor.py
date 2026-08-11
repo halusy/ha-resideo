@@ -24,6 +24,7 @@ from homeassistant.const import (
     PERCENTAGE,
     SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
     EntityCategory,
+    UnitOfTemperature,
     UnitOfTime,
 )
 from homeassistant.core import HomeAssistant
@@ -66,14 +67,18 @@ def _tvoc(d: ResideoDeviceData) -> StateType:
 
 DEVICE_SENSORS: tuple[ResideoSensorEntityDescription, ...] = (
     # --- primary environment ---
+    # Temperature payloads are always °F regardless of the device's display unit (see
+    # ResideoConfiguration.temperature_units) — HA converts for display.
     ResideoSensorEntityDescription(
         key="indoor_temperature", translation_key="indoor_temperature",
         device_class=SensorDeviceClass.TEMPERATURE, state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
         value_fn=lambda d: d.thermostat.indoor_temperature,
     ),
     ResideoSensorEntityDescription(
         key="outdoor_temperature", translation_key="outdoor_temperature",
         device_class=SensorDeviceClass.TEMPERATURE, state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
         value_fn=lambda d: d.thermostat.outdoor_temperature,
     ),
     ResideoSensorEntityDescription(
@@ -102,11 +107,13 @@ DEVICE_SENSORS: tuple[ResideoSensorEntityDescription, ...] = (
     ResideoSensorEntityDescription(
         key="heat_setpoint", translation_key="heat_setpoint", entity_category=DIAG,
         device_class=SensorDeviceClass.TEMPERATURE,
+        native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
         value_fn=lambda d: d.thermostat.heat_setpoint,
     ),
     ResideoSensorEntityDescription(
         key="cool_setpoint", translation_key="cool_setpoint", entity_category=DIAG,
         device_class=SensorDeviceClass.TEMPERATURE,
+        native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
         value_fn=lambda d: d.thermostat.cool_setpoint,
     ),
     ResideoSensorEntityDescription(
@@ -301,6 +308,7 @@ ACCESSORY_SENSORS: tuple[ResideoAccessorySensorEntityDescription, ...] = (
     ResideoAccessorySensorEntityDescription(
         key="temperature", device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
         value_fn=lambda a: a.indoor_temperature,
         exists_fn=lambda a: a.indoor_temperature is not None,
     ),
@@ -313,6 +321,7 @@ ACCESSORY_SENSORS: tuple[ResideoAccessorySensorEntityDescription, ...] = (
     ResideoAccessorySensorEntityDescription(
         key="temperature_actual", translation_key="temperature_actual", entity_category=DIAG,
         device_class=SensorDeviceClass.TEMPERATURE, state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
         value_fn=lambda a: a.temperature_actual,
         exists_fn=lambda a: a.temperature_actual is not None,
     ),
@@ -389,14 +398,6 @@ class ResideoSensor(ResideoEntity, SensorEntity):
         self._attr_unique_id = f"{mac}_{description.key}"
 
     @property
-    def native_unit_of_measurement(self) -> str | None:
-        # Temperature values follow the device's configured display unit (C or F), like the
-        # climate entity — a static °F here would mis-convert readings from a Celsius device.
-        if self.entity_description.device_class is SensorDeviceClass.TEMPERATURE:
-            return self.device_temperature_unit
-        return super().native_unit_of_measurement
-
-    @property
     def native_value(self) -> StateType:
         data = self._device_data
         return self.entity_description.value_fn(data) if data else None
@@ -422,13 +423,6 @@ class ResideoAccessorySensor(ResideoAccessoryEntity, SensorEntity):
         self._attr_unique_id = (
             f"{mac}_room{room.id}_acc{accessory.accessory_id}_{description.key}"
         )
-
-    @property
-    def native_unit_of_measurement(self) -> str | None:
-        # Remote-sensor temperatures follow the thermostat's configured unit (see ResideoSensor).
-        if self.entity_description.device_class is SensorDeviceClass.TEMPERATURE:
-            return self.device_temperature_unit
-        return super().native_unit_of_measurement
 
     @property
     def native_value(self) -> StateType:

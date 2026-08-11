@@ -26,7 +26,7 @@ Entities only appear when your hardware actually supports them — no dead tiles
 | Entity | Type | Notes |
 | --- | --- | --- |
 | Thermostat | `climate` | Current temperature & humidity; heat / cool / off (+ auto where supported); target temperature or range; fan **Auto / Circulate / On**; presets **None / Temporary hold / Permanent hold** |
-| Indoor / Outdoor temperature | `sensor` | Follows the device's °F/°C setting |
+| Indoor / Outdoor temperature | `sensor` | Shown in your Home Assistant unit system (°F/°C) |
 | Indoor / Outdoor humidity | `sensor` | |
 | Carbon dioxide, VOC | `sensor` | Air-quality models only |
 | Connectivity | `binary_sensor` | Reports **Disconnected** when the thermostat drops offline |
@@ -37,8 +37,8 @@ Entities only appear when your hardware actually supports them — no dead tiles
 | Adaptive recovery | `switch` | a.k.a. Smart Response |
 | Schedule | `switch` | Follow or ignore the programmed schedule |
 | Emergency heat | `switch` | Shown only when the thermostat reports emergency-heat support |
-| Heat/Cool setpoint min & max | `number` | Guardrails for the setpoint range (°F models only) |
-| Freeze protection floor | `number` | A 35–45 °F "pipes shall not freeze" floor (°F models only) |
+| Heat/Cool setpoint min & max | `number` | Guardrails for the setpoint range |
+| Freeze protection floor | `number` | A 35–45 °F "pipes shall not freeze" floor |
 
 <details>
 <summary>The nerd drawer: ~45 diagnostic entities, if you're into that</summary>
@@ -156,9 +156,10 @@ again.
 > **Unofficial & reverse-engineered.** This integration mimics the mobile app against an
 > undocumented API; Resideo may change or cut off access at any time. Use at your own risk.
 
-- **Celsius-configured thermostats** hide the setpoint-limit and freeze-protection numbers:
-  those writes are integer-°F under the hood, and we'd rather show you nothing than write
-  garbage to your furnace.
+- **The Resideo cloud speaks Fahrenheit**, whatever your thermostat or app displays. Home
+  Assistant converts everything to your configured unit system, so Celsius households see
+  °C throughout — but the handful of °F-native controls (like the freeze-protection floor)
+  step in whole °F.
 - **Temporary hold** only exists while a schedule is enabled and followed; with the schedule
   off, setpoint changes are permanent holds — exactly like the app.
 - **Vacation hold** and **Hold until** show up when the device reports them, but can't be
