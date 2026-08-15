@@ -130,10 +130,8 @@ def mock_api(
     api = AsyncMock(spec=Resideo)
     api.refresh_token = "refresh-token"
 
-    api.async_get_thermostats.side_effect = lambda: [
-        d
-        for d in (ResideoAccountDevice(x) for x in ResideoClient.iter_devices(accounts_data))
-        if d.is_thermostat
+    api.async_get_devices.side_effect = lambda: [
+        ResideoAccountDevice(x) for x in ResideoClient.iter_devices(accounts_data)
     ]
     api.async_get_signalr_targets.side_effect = lambda: ResideoClient.iter_locations(
         accounts_data

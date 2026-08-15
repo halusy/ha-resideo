@@ -41,7 +41,7 @@ async def test_setup_and_unload(hass: HomeAssistant, init_integration, mock_api)
 async def test_discovery_auth_failure_starts_reauth(
     hass: HomeAssistant, mock_config_entry, mock_api
 ) -> None:
-    mock_api.async_get_thermostats.side_effect = ResideoAuthError("token revoked")
+    mock_api.async_get_devices.side_effect = ResideoAuthError("token revoked")
     mock_config_entry.add_to_hass(hass)
     from unittest.mock import patch
 
@@ -52,6 +52,46 @@ async def test_discovery_auth_failure_starts_reauth(
     assert mock_config_entry.state is ConfigEntryState.SETUP_ERROR
     flows = hass.config_entries.flow.async_progress_by_handler(DOMAIN)
     assert any(flow["context"]["source"] == "reauth" for flow in flows)
+
+
+async def test_no_supported_thermostats_fails_setup_listing_devices(
+    hass: HomeAssistant, mock_config_entry, mock_api, accounts_data
+) -> None:
+    """An account with devices but no thermostats fails permanently, naming what it found."""
+    location = accounts_data["data"]["consumerUsers"][0]["consumerAccount"]["locations"][0]
+    location["consumerDevices"] = [
+        cd
+        for cd in location["consumerDevices"]
+        if cd["device"]["globalDeviceType"] != "Denali_S1200"
+    ]
+    mock_config_entry.add_to_hass(hass)
+    from unittest.mock import patch
+
+    with patch("custom_components.resideo.Resideo", return_value=mock_api):
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert mock_config_entry.state is ConfigEntryState.SETUP_ERROR
+    assert "No supported thermostats" in mock_config_entry.reason
+    assert "OneLink_SC (SmokeDetectorDevice)" in mock_config_entry.reason
+
+
+async def test_empty_account_fails_setup_with_platform_hint(
+    hass: HomeAssistant, mock_config_entry, mock_api, accounts_data
+) -> None:
+    """An account with no devices at all fails permanently with the platform hint."""
+    location = accounts_data["data"]["consumerUsers"][0]["consumerAccount"]["locations"][0]
+    location["consumerDevices"] = []
+    mock_config_entry.add_to_hass(hass)
+    from unittest.mock import patch
+
+    with patch("custom_components.resideo.Resideo", return_value=mock_api):
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert mock_config_entry.state is ConfigEntryState.SETUP_ERROR
+    assert "No devices found" in mock_config_entry.reason
+    assert "Honeywell Home app" in mock_config_entry.reason
 
 
 async def test_stream_connect_failure_retries_setup(

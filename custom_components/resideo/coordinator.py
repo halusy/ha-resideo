@@ -15,7 +15,11 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
+from homeassistant.exceptions import (
+    ConfigEntryAuthFailed,
+    ConfigEntryError,
+    ConfigEntryNotReady,
+)
 from homeassistant.helpers.debounce import Debouncer
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
@@ -110,13 +114,32 @@ class ResideoDataUpdateCoordinator(DataUpdateCoordinator[dict[str, ResideoDevice
     async def _async_setup(self) -> None:
         """One-time discovery: the thermostats + the per-location SignalR targets."""
         try:
-            thermostats = await self.api.async_get_thermostats()
+            devices = await self.api.async_get_devices()
             self._targets = await self.api.async_get_signalr_targets()
         except ResideoAuthError as err:
             raise ConfigEntryAuthFailed(str(err)) from err
         except (ResideoConnectionError, ResideoError) as err:
             raise UpdateFailed(str(err)) from err
-        self._macs = [t.mac for t in thermostats if t.mac]
+        self._macs = [d.mac for d in devices if d.is_thermostat and d.mac]
+        if not self._macs:
+            # A stable account-level condition (e.g. only Honeywell-Home-app devices, which
+            # live on a platform this API can't reach) -> fail setup rather than retry.
+            if devices:
+                found = ", ".join(
+                    f"{d.model or 'unknown model'} ({d.device_kind or 'unknown kind'})"
+                    for d in devices
+                )
+                raise ConfigEntryError(
+                    f"No supported thermostats in this Resideo account — found: {found}. "
+                    "This integration supports thermostats managed by the "
+                    "Resideo / First Alert app."
+                )
+            raise ConfigEntryError(
+                "No devices found in this Resideo account. This integration supports "
+                "thermostats managed by the Resideo / First Alert app; devices managed by "
+                "the Honeywell Home app (e.g. T5/T6) are on a platform it cannot reach — "
+                "use Home Assistant's built-in Lyric or HomeKit integrations for those."
+            )
         _LOGGER.debug(
             "Discovered %d thermostat(s) %s across %d location(s)",
             len(self._macs),
@@ -294,7 +317,10 @@ class ResideoDataUpdateCoordinator(DataUpdateCoordinator[dict[str, ResideoDevice
                 )
             )
         if not self._streams:
-            raise ConfigEntryNotReady("No SignalR-capable thermostat locations found")
+            raise ConfigEntryNotReady(
+                f"Found {len(self._macs)} thermostat(s), but no account location "
+                "supports live updates (SignalR)"
+            )
 
         try:
             for stream in self._streams:
