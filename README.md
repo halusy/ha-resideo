@@ -1,20 +1,26 @@
-# Resideo / Honeywell Home — Home Assistant integration
+# Resideo — Home Assistant integration
 
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5)](https://hacs.xyz/docs/faq/custom_repositories/)
 [![GitHub release](https://img.shields.io/github/v/release/sfcodes/ha-resideo)](https://github.com/sfcodes/ha-resideo/releases)
 [![CI](https://github.com/sfcodes/ha-resideo/actions/workflows/ci.yml/badge.svg)](https://github.com/sfcodes/ha-resideo/actions/workflows/ci.yml)
 [![License](https://img.shields.io/github/license/sfcodes/ha-resideo)](LICENSE)
 
-Control your **Resideo / Honeywell Home** thermostats from Home Assistant. Sign in with the
-**same email and password** you use in the Resideo app — that's the whole setup. From then on
-everything stays in sync in real time: change something on the thermostat or in the app, and
-Home Assistant sees it a second later.
+Control your **Resideo** thermostats from Home Assistant. Sign in with the **same email and
+password** you use in the Resideo app — that's the whole setup. From then on everything stays in
+sync in real time: change something on the thermostat or in the app, and Home Assistant sees it
+a second later.
 
 > [!NOTE]
 > Home Assistant already ships with a [Lyric](https://www.home-assistant.io/integrations/lyric/)
 > integration for these thermostats, but it requires a _developer account_ with OAuth API keys
 > — a bit of a headache to set up — and it updates by _polling_. This one uses your regular
 > credentials and **streams changes in real time**.
+
+> [!IMPORTANT]
+> Resideo runs **_two_ parallel systems**. This integration supports the _newer_ one only — ElitePRO
+> S1200, X8S, T9/T10. It does **not** support the older Lyric one, which is where the **T5, T6
+> and Lyric Round** live. [Supported devices](#supported-devices) has the breakdown and what to
+> use instead.
 
 ## What you get
 
@@ -64,18 +70,6 @@ Vacation hold, Freeze protection, Away mode, and Commercial mode binary sensors.
 | Battery, Signal strength, Status | `sensor` | Diagnostic |
 
 <img align="right" width="300" src="https://raw.githubusercontent.com/sfcodes/ha-resideo/main/docs/images/device-page.png" alt="Resideo thermostat device page in Home Assistant">
-
-## Prerequisites
-
-Two things, and you probably have both already:
-
-- A **Resideo / Honeywell Home account** — the same email/password you use in the Resideo (or
-  First Alert) mobile app.
-- Thermostats that show up in that app. Built and tested against an **ElitePRO S1200 Smart /
-  X8S Smart Thermostat** with wireless room sensors; T9/T10 and other models the app manages may
-  work too — if yours does (or doesn't), let us know. Smoke detectors and other Resideo products
-  aren't supported yet — if you own one and want to help wire it up, contributions are warmly
-  welcome.
 
 ## Installation
 
@@ -130,6 +124,32 @@ reconcile — no flicker, no stale values.
 If the stream can't be established, setup fails and retries — there's no polling fallback;
 this integration simply doesn't poll.
 
+## Supported devices
+
+This works with thermostats on Resideo's **current** system, signed in with the same
+email/password you use in the Resideo (or First Alert) mobile app. Resideo runs two parallel
+systems, and every thermostat sits on exactly one of them:
+
+| Thermostat | System | Supported here |
+| --- | --- | --- |
+| **ElitePRO S1200 Smart**, **X8S Smart** — with wireless room sensors | Resideo, current | ✅ Built and tested against these |
+| **T9 / T10 Smart** and newer models | Resideo, current | ☑️ Expected to work — let me know if you try one out |
+| **T5**, **T5+**, **T6 Pro**, **Lyric Round** | Lyric (LCC), older | ❌ [Not supported](#why-the-t5-and-t6-dont-work) |
+
+Smoke detectors and other Resideo products aren't supported yet — if you own one and want to
+help wire it up, contributions are warmly welcome.
+
+### Why the T5 and T6 don't work
+
+They're on the **older Lyric system** — _LCC_, Lyric Connected Comfort, internally — which is
+why Honeywell's own API lumps that whole family into a single `T5-T6` model and hands out device
+IDs prefixed `LCC-`. Resideo's newer hardware launched on the current system, and the two don't
+cross over: **a T5 never appears in the Resideo account graph at all.**
+
+Sign-in still succeeds, because your Resideo account spans both systems — so setup gets all the
+way to "no supported thermostats" before it fails. That's the account working as intended; it
+simply holds nothing this integration can drive.
+
 ## Troubleshooting
 
 **Something acting up? Grab a debug log.** Settings → Devices & Services → **Resideo** →
@@ -159,6 +179,16 @@ there like any other website, and you paste the resulting redirect back into Hom
 practice the CAPTCHA doesn't even appear — Resideo's bot detection is reacting to the headless
 login, not to you. The step includes click-by-click instructions; the one thing that trips
 people up is that your browser's Network panel has to be open **before** you sign in.
+
+**Setup fails with "No supported thermostats in this Resideo account."** Your sign-in worked —
+the account just holds nothing this integration can drive. The message lists what it *did* find,
+which is usually the giveaway; if that list is empty, or your thermostat is a T5/T6, see
+[Supported devices](#supported-devices). This one doesn't retry on its own, because it isn't a
+temporary failure: sort out the account side, then reload the entry.
+
+(Versions up to 0.2.0 reported this as `No SignalR-capable thermostat locations found`. Same
+cause — and that's *SignalR*, Microsoft's push-messaging service, not anything to do with
+infrared.)
 
 **"Cannot connect" during setup** usually means a firewall or proxy is eating outbound
 WebSockets to `*.service.signalr.net`. The stream isn't optional, so un-block it and try

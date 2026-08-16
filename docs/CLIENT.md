@@ -12,6 +12,12 @@ This client is **vendored** into the integration at `custom_components/resideo/a
 Scope: **thermostats** — read state + control (setpoints, mode, fan, hold) **and a real-time
 push stream** (Azure SignalR) for live state without polling.
 
+Only devices on Resideo's current system are reachable this way. The older **Lyric (LCC)**
+generation — T5/T6, Lyric Round — is served by a separate API at `api.honeywellhome.com` and
+never appears in the account graph here, even when authentication succeeds. That hardware is
+[`aiolyric`](https://github.com/timmo001/aiolyric) /
+[Lyric](https://www.home-assistant.io/integrations/lyric/) territory.
+
 > ⚠️ Reverse-engineered and unofficial. The consumer API is undocumented and may change without
 > notice.
 

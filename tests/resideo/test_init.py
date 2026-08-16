@@ -91,7 +91,7 @@ async def test_empty_account_fails_setup_with_platform_hint(
 
     assert mock_config_entry.state is ConfigEntryState.SETUP_ERROR
     assert "No devices found" in mock_config_entry.reason
-    assert "Honeywell Home app" in mock_config_entry.reason
+    assert "separate Resideo system" in mock_config_entry.reason
 
 
 async def test_stream_connect_failure_retries_setup(
