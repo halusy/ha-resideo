@@ -7,6 +7,7 @@
       "RoomId": 0,
       "AccessoryId": 0,
       "AccessoryAttribute": {
+        "Id": 0,
         "Type": "TS",
         "ConnectionMethod": "WI",
         "Name": "Thermostat",
@@ -14,12 +15,17 @@
         "SoftwareRevision": "01.3605.740"
       },
       "AccessoryValue": {
+        "Id": 0,
         "IndoorTemperature": 78,
         "IndoorHumidity": 52,
         "OccupancyDet": true,
         "MotionDet": false,
-        "CarbonDioxide": { "Measurement": 430 },
-        "TotalVolatileOrganicCompounds": { "Measurement": 2 },
+        "CarbonDioxide": {
+          "Measurement": 430
+        },
+        "TotalVolatileOrganicCompounds": {
+          "Measurement": 2
+        },
         "Status": "Ok",
         "RssiAverage": -62
       }

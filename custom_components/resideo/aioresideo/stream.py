@@ -222,9 +222,25 @@ class ResideoStream:
             _LOGGER.exception("Resideo on_event callback raised")
 
     def _note_expiry(self, iso: str) -> None:
+        """Adopt a pushed ``SubscriptionExpiration`` — but only a believable one.
+
+        The cloud stamps pushes with an expiry that is sometimes **already in the past** (observed
+        2026-08-21: 590-812s stale on every push, while the same field was ~7 min in the future in
+        2026-06). Taking it at face value makes ``_keepalive`` cycle the socket on its very next
+        tick, and since every push carries one the client reconnects every ~16s forever — each
+        cycle costing a negotiate + subscribe + activate + full REST resync. Anything at or inside
+        the reconnect margin is discarded, leaving the previous deadline (or the TTL fallback) in
+        force, so a stale stamp costs nothing and a genuine one still shortens the window.
+        """
         ts = _parse_iso(iso)
-        if ts is not None:
-            self._feed_expiry = ts
+        if ts is None:
+            return
+        if ts <= time.time() + SIGNALR_FEED_RECONNECT_MARGIN:
+            _LOGGER.debug(
+                "Ignoring implausible SignalR feed expiry %s (%.0fs from now)", iso, ts - time.time()
+            )
+            return
+        self._feed_expiry = ts
 
     # -- keepalive + renewal --------------------------------------------------
     async def _keepalive(self) -> None:

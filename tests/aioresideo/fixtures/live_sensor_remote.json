@@ -4,23 +4,37 @@
   "Body": {
     "PropertyName": "Sensor",
     "Value": {
-      "RoomId": 1,
-      "AccessoryId": 1,
+      "RoomId": 0,
+      "AccessoryId": 0,
       "AccessoryAttribute": {
-        "Type": "RL",
-        "ConnectionMethod": "RL",
-        "Name": "Guest Room",
-        "SerialNumber": "000000000000"
+        "Id": 0,
+        "Type": "TS",
+        "ConnectionMethod": "WI",
+        "Name": "Thermostat",
+        "UserChangeEnable": false,
+        "Model": "Unknown OS",
+        "SerialNumber": "000000000000",
+        "SoftwareRevision": "01.3605.740",
+        "HardwareRevision": "DENALI_TSTAT-001"
       },
       "AccessoryValue": {
-        "IndoorTemperature": 70,
+        "Id": 0,
         "IndoorHumidity": 60,
-        "OccupancyDet": true,
         "MotionDet": true,
+        "OccupancyDet": true,
+        "IndoorTemperature": 70,
+        "Identify": false,
+        "ExcludeTemp": false,
+        "ExcludeMotion": false,
+        "OccupancySensitivity": "Medium",
+        "OccupancyTimeout": 0,
         "Status": "Ok",
-        "RssiAverage": -55
+        "BatteryStatus": "Ok",
+        "RssiAverage": -55,
+        "PollutantLevels": []
       }
-    }
+    },
+    "SubscriptionExpiration": "2026-06-19T19:53:53.956+00:00"
   },
   "TemplateId": "LiveFeedEvent_Sensor"
 }

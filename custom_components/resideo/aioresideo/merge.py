@@ -7,7 +7,9 @@ in the push are written (**no-clobber**). See ``resideo-api-spec.md`` §9 + the 
 
 Merged value-types are exactly :data:`LIVE_FEED_MERGED_PROPERTIES`: ``Setpoint``, ``OperationStatus``,
 ``SystemSwitch``, ``FanSwitch``, ``Sensor``, ``Rooms``, and the
-``Displayed{Indoor,Outdoor}{Temperature,Humidity}`` family. Every *other* LiveFeed type
+``Displayed{Indoor,Outdoor}{Temperature,Humidity}`` family. ``Sensor`` needs special care: the
+cloud labels each push with the identity of the *previous* accessory (see
+:func:`_sensor_push_target`), so its header is decoded, not trusted. Every *other* LiveFeed type
 (``Schedule*``, ``DrEventStatus``, ``DuctTemperature``, ``Groups``, ...) carries values we don't map
 here — the coordinator re-reads REST (resync) when one arrives rather than guessing its shape — and
 settings (Feels Like, Adaptive Recovery, ...) don't push values at all (they ride ``ChangeRequest``).
@@ -17,6 +19,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from functools import partial
+from itertools import pairwise
 from typing import Any
 
 from .objects.events import ResideoLiveFeed
@@ -122,28 +125,68 @@ def _apply_fan_switch(shadow: dict[str, Any], rooms: dict[str, Any], value: dict
     rep.setdefault("Setpoint", {}).setdefault("FanSwitch", {})["Position"] = pos
 
 
-def _apply_sensor(shadow: dict[str, Any], rooms: dict[str, Any], value: dict[str, Any]) -> None:
-    room_id = value.get("RoomId")
-    accessory_id = value.get("AccessoryId")
+def _accessory_type(acc: dict[str, Any]) -> str | None:
+    return (acc.get("AccessoryAttribute") or {}).get("Type")
+
+
+def _sensor_push_target(rooms: dict[str, Any], value: dict[str, Any]) -> dict[str, Any] | None:
+    """Resolve which cached accessory a ``Sensor`` push's ``AccessoryValue`` belongs to.
+
+    The cloud's ``Sensor`` notifications are **off by one**: each push's header (``RoomId`` /
+    ``AccessoryId`` / ``AccessoryAttribute`` — type, name, serial) describes the accessory *before*
+    the one whose ``AccessoryValue`` it carries. Verified live against REST with two remotes::
+
+        header acc 0 (thermostat) + thermostat payload (CO2/VOC)  -> acc 0, the thermostat itself
+        header acc 0 (thermostat) + remote payload (BatteryStatus) -> acc 1, the first remote
+        header acc 1 (first remote, its real serial)               -> acc 2, the second remote
+
+    With a single remote this is indistinguishable from "every push is labelled as the
+    thermostat" (captured 9/9 in 2026-06 and again 2026-08-20). Trusting the header merged the
+    remote's reading — and its ``OccupancyDet`` — into the thermostat's slot, so the thermostat's
+    values and occupancy flapped with every burst, while the remote never received a push at all.
+
+    Routing: a payload without ``BatteryStatus`` is the wall-powered thermostat's (only the
+    battery remotes carry one); a remote payload belongs to the accessory *after* the header's in
+    ``AccessoryId`` order. The target's cached ``Type`` must agree with the payload shape — if the
+    header is unknown, has no successor, or the successor isn't a remote, the push is dropped
+    rather than guessed (the REST resync covers it).
+    """
     push_av = value.get("AccessoryValue")
     if not isinstance(push_av, dict):
+        return None
+    accessories = sorted(
+        (
+            acc
+            for room in rooms.get("Rooms", []) or []
+            for acc in room.get("Accessories", []) or []
+            if acc.get("AccessoryId") is not None
+        ),
+        key=lambda acc: acc["AccessoryId"],
+    )
+    if "BatteryStatus" not in push_av:
+        thermostats = [acc for acc in accessories if _accessory_type(acc) == "Thermostat"]
+        return thermostats[0] if len(thermostats) == 1 else None
+    header_id = value.get("AccessoryId")
+    for header, successor in pairwise(accessories):
+        if header["AccessoryId"] == header_id:
+            return successor if _accessory_type(successor) == "IndoorAirSensor" else None
+    return None
+
+
+def _apply_sensor(shadow: dict[str, Any], rooms: dict[str, Any], value: dict[str, Any]) -> None:
+    """Per-accessory values push -> the owning accessory (see :func:`_sensor_push_target`).
+
+    ``DisplayedIndoorTemperature/Humidity`` are deliberately **not** derived from this push: they
+    are the thermostat's *control* reading (priority-weighted, Feels-Like-adjusted — the number the
+    app's header shows) and never equal any single sensor's raw value. They arrive via their own
+    standalone pushes (:func:`_apply_displayed`) and the REST resync.
+    """
+    acc = _sensor_push_target(rooms, value)
+    if acc is None:
         return
-    # Route by NUMERIC ids — never by Type (the push's AccessoryAttribute.Type is "TS", not the
-    # REST "Thermostat"/"IndoorAirSensor"; matching on it would misroute / break is_thermostat).
-    for room in rooms.get("Rooms", []) or []:
-        if room.get("Id") != room_id:
-            continue
-        for acc in room.get("Accessories", []) or []:
-            if acc.get("AccessoryId") != accessory_id:
-                continue
-            acc["AccessoryValue"] = _deep_merge_value(acc.get("AccessoryValue") or {}, push_av)
-            # Built-in thermostat -> mirror displayed indoor temp/humidity into the shadow.
-            # Test the EXISTING accessory's Type (never overwritten), not the push's "TS".
-            if (acc.get("AccessoryAttribute") or {}).get("Type") == "Thermostat":
-                rep = _reported(shadow)
-                _set_if_present(rep, "DisplayedIndoorTemperature", push_av, "IndoorTemperature")
-                _set_if_present(rep, "DisplayedIndoorHumidity", push_av, "IndoorHumidity")
-            return
+    # AccessoryValue.Id is off by one like the header — never stamp it onto the target.
+    push_av = {k: v for k, v in value["AccessoryValue"].items() if k != "Id"}
+    acc["AccessoryValue"] = _deep_merge_value(acc.get("AccessoryValue") or {}, push_av)
 
 
 def _apply_rooms(shadow: dict[str, Any], rooms: dict[str, Any], value: dict[str, Any]) -> None:
@@ -177,9 +220,9 @@ def _apply_displayed(
 ) -> None:
     """Standalone displayed-value push ``{"Value": <n>, "Sensor": "Ok"}`` -> ``Reported.<key>``.
 
-    Covers ``DisplayedIndoorTemperature/Humidity`` (also mirrored from the ``Sensor`` push) and
-    ``DisplayedOutdoorTemperature/Humidity`` (only delivered this way). ``Sensor`` status is ignored
-    (no accessor consumes it).
+    The sole push-side writer of the ``Displayed{Indoor,Outdoor}{Temperature,Humidity}`` family
+    (the outdoor pair is observed live every 30 min). ``Sensor`` status is ignored (no accessor
+    consumes it).
     """
     v = value.get("Value")
     if v is not None:

@@ -65,7 +65,7 @@ class ResideoAccessory(ResideoBaseObject):
     # -- live values (from AccessoryValue) ------------------------------------
     @property
     def indoor_temperature(self) -> float | None:
-        return self._value.get("IndoorTemperature")
+        return self._as_float(self._value.get("IndoorTemperature"))
 
     @property
     def indoor_humidity(self) -> int | None:
@@ -90,7 +90,7 @@ class ResideoAccessory(ResideoBaseObject):
     @property
     def temperature_actual(self) -> float | None:
         """Raw measured temperature (vs the displayed/rounded ``indoor_temperature``)."""
-        return self._value.get("TemperatureActual")
+        return self._as_float(self._value.get("TemperatureActual"))
 
     @property
     def status(self) -> str | None:
@@ -117,8 +117,8 @@ class ResideoAccessory(ResideoBaseObject):
     def _measurement(self, key: str) -> float | None:
         """Numeric measurement from a ``{Measurement, Displayed}`` block, if displayed."""
         block = self._value.get(key)
-        if isinstance(block, dict) and block.get("Displayed") and block.get("Measurement") is not None:
-            return block.get("Measurement")
+        if isinstance(block, dict) and block.get("Displayed"):
+            return self._as_float(block.get("Measurement"))
         return None
 
     @property
@@ -156,7 +156,7 @@ class ResideoRoom(ResideoBaseObject):
 
     @property
     def avg_temperature(self) -> float | None:
-        return self.attributes.get("AvgTemperature")
+        return self._as_float(self.attributes.get("AvgTemperature"))
 
     @property
     def avg_humidity(self) -> float | None:

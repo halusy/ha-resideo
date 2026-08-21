@@ -14,7 +14,7 @@ from custom_components.resideo.aioresideo.exceptions import (
 )
 from custom_components.resideo.const import DOMAIN
 
-from .conftest import MAC, advance_time, eid, setup_integration
+from .conftest import MAC, advance_time, eid, load_fixture_json, setup_integration
 
 MAC2 = "112233445566"
 
@@ -171,3 +171,25 @@ async def test_all_devices_failing_marks_update_failed(
 
     assert not coordinator.last_update_success
     assert hass.states.get(temp).state == "unavailable"
+
+
+async def test_remote_sensor_push_does_not_flap_thermostat(
+    hass: HomeAssistant, init_integration, mock_api
+) -> None:
+    """The cloud labels a remote sensor's push with the thermostat's ids. It must land on the
+    remote's entities — not flip the thermostat's occupancy or overwrite its climate reading."""
+    tstat_occ = eid(hass, "binary_sensor", f"{MAC}_occupancy")
+    climate = eid(hass, "climate", f"{MAC}_climate")
+    remote_temp = eid(hass, "sensor", f"{MAC}_room1_acc1_temperature")
+    remote_occ = eid(hass, "binary_sensor", f"{MAC}_room1_acc1_occupancy")
+    assert hass.states.get(tstat_occ).state == "on"
+    assert hass.states.get(remote_occ).state == "off"
+
+    push = load_fixture_json("live_sensor_remote.json")["Body"]
+    mock_api.streams[0].on_event(_live(push["PropertyName"], push["Value"]))
+    await hass.async_block_till_done()
+
+    assert hass.states.get(remote_temp).state == "70.0"
+    assert hass.states.get(remote_occ).state == "on"
+    assert hass.states.get(tstat_occ).state == "on"  # unchanged
+    assert hass.states.get(climate).attributes["current_temperature"] == 76.0  # unchanged

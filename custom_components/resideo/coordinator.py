@@ -366,6 +366,9 @@ class ResideoDataUpdateCoordinator(DataUpdateCoordinator[dict[str, ResideoDevice
             return
         if not isinstance(event, ResideoLiveFeed) or not self.data:
             return
+        # The raw push is the evidence in most bug reports (the cloud's shapes are reverse-
+        # engineered — e.g. every Sensor push is labelled with the thermostat's ids).
+        _LOGGER.debug("LiveFeed %s %s: %s", event.device_id, event.property_name, event.value)
         current = self.data.get(event.device_id)
         if current is None:
             return  # event for a device we don't track

@@ -22,5 +22,11 @@ class ResideoBaseObject:
                 return default
         return cur
 
+    @staticmethod
+    def _as_float(value: Any) -> float | None:
+        """Temperatures arrive as ``76.0`` from REST but ``76`` from LiveFeed pushes; normalise so
+        the same reading isn't two distinct states (``"76.0"`` vs ``"76"``) downstream."""
+        return None if value is None else float(value)
+
     def __repr__(self) -> str:
         return f"<{type(self).__name__} {self.attributes!r}>"

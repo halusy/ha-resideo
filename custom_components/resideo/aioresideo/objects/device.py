@@ -91,11 +91,11 @@ class ResideoThermostat(ResideoBaseObject):
     # -- temperature / humidity ----------------------------------------------
     @property
     def indoor_temperature(self) -> float | None:
-        return self.reported.get("DisplayedIndoorTemperature")
+        return self._as_float(self.reported.get("DisplayedIndoorTemperature"))
 
     @property
     def outdoor_temperature(self) -> float | None:
-        return self.reported.get("DisplayedOutdoorTemperature")
+        return self._as_float(self.reported.get("DisplayedOutdoorTemperature"))
 
     @property
     def indoor_humidity(self) -> int | None:
@@ -117,11 +117,11 @@ class ResideoThermostat(ResideoBaseObject):
 
     @property
     def heat_setpoint(self) -> float | None:
-        return self.setpoint.get("HeatSetpoint")
+        return self._as_float(self.setpoint.get("HeatSetpoint"))
 
     @property
     def cool_setpoint(self) -> float | None:
-        return self.setpoint.get("CoolSetpoint")
+        return self._as_float(self.setpoint.get("CoolSetpoint"))
 
     @property
     def fan_position(self) -> str | None:
