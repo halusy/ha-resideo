@@ -131,8 +131,8 @@ class ResideoDataUpdateCoordinator(DataUpdateCoordinator[dict[str, ResideoDevice
             raise UpdateFailed(str(err)) from err
         self._macs = [d.mac for d in devices if d.is_thermostat and d.mac]
         if not self._macs:
-            # A stable account-level condition (e.g. only older Lyric/LCC-generation devices,
-            # which live on a system this API can't reach) -> fail setup rather than retry.
+            # A stable account-level condition (e.g. only Lyric/LCC-platform devices, which
+            # live on a system this API can't reach) -> fail setup rather than retry.
             if devices:
                 found = ", ".join(
                     f"{d.model or 'unknown model'} ({d.device_kind or 'unknown kind'})"
@@ -140,13 +140,15 @@ class ResideoDataUpdateCoordinator(DataUpdateCoordinator[dict[str, ResideoDevice
                 )
                 raise ConfigEntryError(
                     f"No supported thermostats in this Resideo account — found: {found}. "
-                    "Older thermostats (T5/T6, Lyric Round) run on a separate Resideo "
-                    "system this integration cannot reach."
+                    "This integration reads thermostats on the platform the First Alert app uses; "
+                    "a thermostat that only appears in the older Resideo app (formerly Honeywell "
+                    "Home) is on a separate Resideo system it cannot reach."
                 )
             raise ConfigEntryError(
-                "No devices found in this Resideo account. Older thermostats (T5/T6, Lyric "
-                "Round) run on a separate Resideo system this integration cannot reach — "
-                "use Home Assistant's built-in Lyric integration for those."
+                "No devices found in this Resideo account. If your thermostat only appears in the "
+                "older Resideo app (formerly Honeywell Home), it is on a separate Resideo system "
+                "this integration cannot reach — use Home Assistant's built-in Lyric integration "
+                "for those."
             )
         _LOGGER.debug(
             "Discovered %d thermostat(s) %s across %d location(s)",

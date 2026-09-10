@@ -2,7 +2,7 @@
 
 Async (aiohttp) port of the proven flow in ``spikes/resideo_consumer.py`` — the Auth0
 "classic" Universal Login + WS-Fed callback dance, plus refresh-token exchange. Uses the
-Resideo / First Alert app's own public Auth0 client, so no developer account is needed.
+First Alert app's own public Auth0 client, so no developer account is needed.
 
 Login flow (6 steps), see ``resideo-reverse-engineering.md`` §4B:
   1. GET  /authorize          -> redirect carrying Auth0 ``state``

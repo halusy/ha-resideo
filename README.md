@@ -6,9 +6,9 @@
 [![License](https://img.shields.io/github/license/sfcodes/ha-resideo)](LICENSE)
 
 Control your **Resideo** thermostats from Home Assistant. Sign in with the **same email and
-password** you use in the Resideo app — that's the whole setup. From then on everything stays in
-sync in real time: change something on the thermostat or in the app, and Home Assistant sees it
-a second later.
+password** you use in the **First Alert** app — Resideo's current app for these thermostats —
+and that's the whole setup. From then on everything stays in sync in real time: change something
+on the thermostat or in the app, and Home Assistant sees it a second later.
 
 > [!NOTE]
 > Home Assistant already ships with a [Lyric](https://www.home-assistant.io/integrations/lyric/)
@@ -17,10 +17,16 @@ a second later.
 > credentials and **streams changes in real time**.
 
 > [!IMPORTANT]
-> Resideo runs **_two_ parallel systems**. This integration supports the _newer_ one only — ElitePRO
-> S1200, X8S, T9/T10. It does **not** support the older Lyric one, which is where the **T5, T6
-> and Lyric Round** live. [Supported devices](#supported-devices) has the breakdown and what to
-> use instead.
+> This works with thermostats you manage in the **First Alert** app — ElitePRO S1200, X8S,
+> T9/T10, and T5/T6. It does **not** reach older **Lyric**-branded thermostats (like the
+> **Lyric Round**), which live on a separate Resideo system. And if Resideo hasn't yet moved
+> your account to its newer login, sign-in is rejected even with the right password.
+> [Supported devices](#supported-devices) explains both — and how to fix them.
+>
+> **A heads-up on Resideo's confusing app names:** the current app for these thermostats is
+> **First Alert**. The app now called **Resideo** on your phone (it used to be **Honeywell
+> Home**) is the *older* one, on the system this integration can't use. When setup asks for a
+> login, it means your **First Alert** account.
 
 ## What you get
 
@@ -100,8 +106,8 @@ the async API client (`aioresideo`) is vendored inside it, and the only runtime 
 Or: Settings → Devices & Services → **Add Integration** → **Resideo**. Sign in however you
 like:
 
-- **Email and password** — your everyday Resideo credentials (sent only to Resideo's own
-  sign-in endpoint; only the resulting refresh token gets stored). Try this first.
+- **Email and password** — the same login you use in the **First Alert** app (sent only to
+  Resideo's own sign-in endpoint; only the resulting refresh token gets stored). Try this first.
 - **Sign in with your browser** — opens Resideo's own sign-in page so you log in there
   instead, then you paste the redirect back. Slower, but it's the one that works when
   Resideo's bot detection blocks the direct login (see Troubleshooting).
@@ -118,7 +124,7 @@ silently broken integration.
 ## Data updates
 
 This integration is `cloud_push`: after one REST bootstrap against Resideo's
-native API at `api.ha.resideo.com` (the same backend the app uses), it parks on a persistent
+native API at `api.ha.resideo.com` (the same backend the First Alert app uses), it parks on a persistent
 Azure SignalR stream — so thermostat, app, and schedule changes land in Home Assistant in
 **~1–3 seconds**, including the ones someone makes on the wall. Your own commands show up
 instantly (optimistically), get confirmed by the stream, then double-checked by a quiet
@@ -129,29 +135,72 @@ this integration simply doesn't poll.
 
 ## Supported devices
 
-This works with thermostats on Resideo's **current** system, signed in with the same
-email/password you use in the Resideo (or First Alert) mobile app. Resideo runs two parallel
-systems, and every thermostat sits on exactly one of them:
+Sign in with your **First Alert** account — Resideo's current app for these thermostats.
+Confusingly, that is **not** the app now called _Resideo_ on your phone (it used to be
+_Honeywell Home_), which is the older one this integration can't use. Here's each:
 
-| Thermostat | System | Supported here |
-| --- | --- | --- |
-| **ElitePRO S1200 Smart**, **X8S Smart** — with wireless room sensors | Resideo, current | ✅ Built and tested against these |
-| **T9 / T10 Smart** and newer models | Resideo, current | ☑️ Expected to work — let me know if you try one out |
-| **T5**, **T5+**, **T6 Pro**, **Lyric Round** | Lyric (LCC), older | ❌ [Not supported](#why-the-t5-and-t6-dont-work) |
+<table>
+<tr>
+<td width="50%" align="center" valign="top">
+
+**✅ First Alert** — the current app, use this one
+
+<img src="https://raw.githubusercontent.com/sfcodes/ha-resideo/main/docs/images/app-new-first-alert.png" width="230" alt="The First Alert app — Resideo's current app for these thermostats">
+
+[Google Play](https://play.google.com/store/apps/details?id=com.resideo.firstalert) · `com.resideo.firstalert`
+
+</td>
+<td width="50%" align="center" valign="top">
+
+**❌ Resideo** (formerly Honeywell Home) — the older app, can't be used here
+
+<img src="https://raw.githubusercontent.com/sfcodes/ha-resideo/main/docs/images/app-old-resideo.png" width="230" alt="The older Resideo app, formerly Honeywell Home">
+
+[Google Play](https://play.google.com/store/apps/details?id=com.honeywell.android.lyric) · `com.honeywell.android.lyric`
+
+</td>
+</tr>
+</table>
+
+If a thermostat shows up in your **First Alert** app, this integration can drive it. That
+includes:
+
+| Thermostat | Status |
+| --- | --- |
+| **ElitePRO S1200 Smart**, **X8S Smart** — with wireless room sensors | ✅ Built and tested against these |
+| **T9 / T10 Smart** and newer models | ☑️ Expected to work — let me know if you try one out |
+| **T5**, **T5+**, **T6**, **T6R Smart** | ☑️ Work when set up in the **First Alert** app (confirmed by a user running a T5) |
 
 Smoke detectors and other Resideo products aren't supported yet — if you own one and want to
 help wire it up, contributions are warmly welcome.
 
-### Why the T5 and T6 don't work
+### If setup doesn't work
 
-They're on the **older Lyric system** — _LCC_, Lyric Connected Comfort, internally — which is
-why Honeywell's own API lumps that whole family into a single `T5-T6` model and hands out device
-IDs prefixed `LCC-`. Resideo's newer hardware launched on the current system, and the two don't
-cross over: **a T5 never appears in the Resideo account graph at all.**
+There are two reasons it can fail, each with a clear symptom and fix.
 
-Sign-in still succeeds, because your Resideo account spans both systems — so setup gets all the
-way to "no supported thermostats" before it fails. That's the account working as intended; it
-simply holds nothing this integration can drive.
+**1. The thermostat is an older Lyric one.** A few Honeywell thermostats — the **Lyric Round**
+and other older **Lyric**-branded units — run on a separate, older Resideo cloud that this
+integration can't reach. It's not about the model number: a **T5** or **T6** set up in the
+**First Alert** app is fine; a **Lyric**-branded thermostat is not. The quick test is which app
+shows it — if it appears in **First Alert**, it works here; if it only shows in the **Resideo**
+app (the one formerly called **Honeywell Home**), use Home Assistant's built-in
+[Lyric](https://www.home-assistant.io/integrations/lyric/) integration instead.
+
+> **Symptom:** sign-in succeeds, then setup fails with _"No supported thermostats in this
+> Resideo account."_
+
+**2. Your account is on Resideo's older login.** Resideo is moving accounts onto the newer login
+that the **First Alert** app uses, and the old one is a completely separate sign-in. Until yours
+is moved, the same email and password that work in the **Resideo** app (formerly **Honeywell
+Home**) are rejected here. **Fix:** open that **Resideo** app and complete any prompt to upgrade
+or move your account to the new First Alert experience — then sign in here again.
+
+> **Symptom:** sign-in is **rejected**, even though the password is definitely right.
+
+> [!NOTE]
+> **Total Connect Comfort** (older thermostats) and **Total Connect 2.0** (security systems) are
+> separate Resideo products with their own accounts — not the same login. Those credentials
+> won't work here.
 
 ## Troubleshooting
 
@@ -184,11 +233,19 @@ practice the CAPTCHA doesn't even appear — Resideo's bot detection is reacting
 login, not to you. The step includes click-by-click instructions; the one thing that trips
 people up is that your browser's Network panel has to be open **before** you sign in.
 
+**Sign-in is rejected, but the same password works in your phone app.** Your account is still on
+Resideo's older login — it hasn't been moved to the newer one the **First Alert** app (and this
+integration) uses. That older login is the **Resideo** app, formerly **Honeywell Home**; open it
+and complete any prompt to upgrade or move your account to the new First Alert experience, then
+sign in here again. See [Supported devices](#supported-devices) for the two setup failures and
+their fixes.
+
 **Setup fails with "No supported thermostats in this Resideo account."** Your sign-in worked —
 the account just holds nothing this integration can drive. The message lists what it *did* find,
-which is usually the giveaway; if that list is empty, or your thermostat is a T5/T6, see
-[Supported devices](#supported-devices). This one doesn't retry on its own, because it isn't a
-temporary failure: sort out the account side, then reload the entry.
+which is usually the giveaway; if that list is empty, or your thermostat only shows in the older
+**Resideo** app (formerly **Honeywell Home**), see [Supported devices](#supported-devices). This
+one doesn't retry on its own, because it isn't a temporary failure: sort out the account side,
+then reload the entry.
 
 (Versions up to 0.2.0 reported this as `No SignalR-capable thermostat locations found`. Same
 cause — and that's *SignalR*, Microsoft's push-messaging service, not anything to do with

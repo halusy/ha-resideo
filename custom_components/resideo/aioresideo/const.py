@@ -1,6 +1,6 @@
 """Constants for aioresideo — the private Resideo consumer API (api.ha.resideo.com).
 
-These values are reverse-engineered from the Resideo / First Alert mobile app and
+These values are reverse-engineered from the First Alert mobile app and
 verified live (see ``resideo-api-spec.md`` §1). They use the app's own public Auth0
 client, so **no developer.honeywellhome.com account is required**.
 """

@@ -12,7 +12,7 @@
       },
       "login": {
         "title": "Sign in to Resideo",
-        "description": "Use the same email and password as the Resideo / First Alert app.",
+        "description": "Use the same email and password as the First Alert app — Resideo's current app for these thermostats.",
         "data": {
           "email": "Email",
           "password": "Password"
@@ -43,7 +43,7 @@
       },
       "invalid_auth": {
         "title": "Invalid email or password",
-        "description": "Resideo did not accept that email and password ({detail}).\n\nUse the same credentials as the Resideo / First Alert app. If they are certainly right, Resideo may be refusing the direct sign-in rather than the password — signing in through your browser gets past that.",
+        "description": "Resideo did not accept that email and password ({detail}).\n\nUse the same credentials as the First Alert app — Resideo's current app for these thermostats. If they are certainly right, two things can cause this:\n\n- **Resideo is refusing the direct sign-in** — a CAPTCHA or a temporary rate limit, not a wrong password. **Signing in with your browser** gets past that.\n- **Your account is still on Resideo's older login.** The app now called **Resideo** on your phone (formerly **Honeywell Home**) uses a separate, older sign-in this integration can't use. Open it, complete any prompt to upgrade or move your account to the new First Alert experience, then try again. (A thermostat that only ever lived on the old Lyric system — like a Lyric Round — won't work here even after you migrate.)",
         "menu_options": {
           "login": "Try email and password again",
           "browser": "Sign in with your browser",
