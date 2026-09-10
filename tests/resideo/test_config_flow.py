@@ -1,9 +1,11 @@
-"""Config-flow tests: login, manual token, dedupe, and reauth guarding."""
+"""Config-flow tests: login, manual token, dedupe, failure menus, and reauth guarding."""
 
 from __future__ import annotations
 
 import base64
 import json
+import re
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 from urllib.parse import parse_qs, urlparse
 
@@ -17,6 +19,11 @@ from custom_components.resideo.aioresideo.exceptions import (
     ResideoAuthError,
     ResideoConnectionError,
 )
+from custom_components.resideo.config_flow import (
+    _AUTH_ERROR_KEYS,
+    FAILURE_MENUS,
+    ResideoConfigFlow,
+)
 from custom_components.resideo.const import (
     CONF_REDIRECT_URL,
     CONF_REFRESH_TOKEN,
@@ -24,6 +31,34 @@ from custom_components.resideo.const import (
 )
 
 from .conftest import SUB
+
+_COMPONENT = Path(__file__).parents[2] / "custom_components" / "resideo"
+
+
+def test_every_menu_has_a_handler_and_complete_strings() -> None:
+    """A menu with no handler aborts the flow on a page reload; one with no strings renders raw ids.
+
+    Neither shows up in a flow test that never reloads, so assert the invariants directly.
+    """
+    strings = json.loads((_COMPONENT / "strings.json").read_text())["config"]["step"]
+    assert set(_AUTH_ERROR_KEYS.values()) <= set(FAILURE_MENUS)
+
+    for menu in (*FAILURE_MENUS, "user", "reauth_confirm"):
+        assert hasattr(ResideoConfigFlow, f"async_step_{menu}"), f"{menu} has no handler"
+        block = strings.get(menu)
+        assert block, f"{menu} has no strings"
+        assert block.get("title") and block.get("description")
+        assert set(block["menu_options"]) == {"login", "browser", "manual"}
+        # Only `detail` is ever passed, and only by the failure menus.
+        placeholders = set(re.findall(r"\{(\w+)\}", block["description"]))
+        assert placeholders <= ({"detail"} if menu in FAILURE_MENUS else set())
+
+
+def test_translations_match_strings() -> None:
+    """en.json is the shipped copy of strings.json; a drifting copy silently wins in the UI."""
+    assert (_COMPONENT / "translations" / "en.json").read_text() == (
+        _COMPONENT / "strings.json"
+    ).read_text()
 
 
 def _jwt(sub: str) -> str:
@@ -98,12 +133,18 @@ async def test_login_errors_then_recovers(
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"], {"email": "test@example.com", "password": "nope"}
         )
-    assert result["type"] is FlowResultType.FORM
-    assert result["errors"] == {"base": error}
-    # The form always carries a `detail` placeholder; the messages interpolate it.
+    # Every failure lands on a menu of all three paths, never back on the dead-end form.
+    assert result["type"] is FlowResultType.MENU
+    assert result["step_id"] == error
+    # The menu always carries a `detail` placeholder; the descriptions interpolate it.
     assert "detail" in result["description_placeholders"]
+    assert set(result["menu_options"]) == {"login", "browser", "manual"}
 
-    # The same flow recovers on a subsequent valid submission.
+    # The same flow recovers by picking email/password again and submitting valid ones.
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"next_step_id": "login"}
+    )
+    assert result["type"] is FlowResultType.FORM
     with (
         patch("custom_components.resideo.config_flow.ResideoAuth") as mock_auth,
         patch("custom_components.resideo.async_setup_entry", return_value=True),
@@ -113,6 +154,81 @@ async def test_login_errors_then_recovers(
             result["flow_id"], {"email": "test@example.com", "password": "hunter2"}
         )
     assert result["type"] is FlowResultType.CREATE_ENTRY
+
+
+async def test_captcha_menu_offers_the_browser_path(hass: HomeAssistant) -> None:
+    """The reported bug: a CAPTCHA must not strand the user on the one path that can't work."""
+    result = await _start_login_flow(hass)
+    with patch("custom_components.resideo.config_flow.ResideoAuth") as mock_auth:
+        mock_auth.return_value.login = AsyncMock(
+            side_effect=ResideoAuthError("captcha", step="credentials", code="invalid_captcha")
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"email": "test@example.com", "password": "hunter2"}
+        )
+    assert result["type"] is FlowResultType.MENU
+    assert result["step_id"] == "captcha_required"
+    # The path that survives a CAPTCHA is offered first — offered, not forced.
+    assert next(iter(result["menu_options"])) == "browser"
+
+    # Switching to it mid-flow now works, which is what was impossible before.
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"next_step_id": "browser"}
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "browser"
+    state = parse_qs(urlparse(result["description_placeholders"]["url"]).query)["state"][0]
+    with (
+        patch("custom_components.resideo.config_flow.ResideoAuth") as mock_auth,
+        patch("custom_components.resideo.async_setup_entry", return_value=True),
+    ):
+        mock_auth.return_value.exchange_code = AsyncMock(return_value=_tokens())
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {CONF_REDIRECT_URL: f"{REDIRECT_URI}?code=the-code&state={state}"},
+        )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"] == {CONF_REFRESH_TOKEN: "new-refresh"}
+
+
+async def test_failure_menu_survives_a_page_reload(hass: HomeAssistant) -> None:
+    """Re-reading an in-progress flow re-enters a menu by its step id, so each needs a handler."""
+    result = await _start_login_flow(hass)
+    with patch("custom_components.resideo.config_flow.ResideoAuth") as mock_auth:
+        mock_auth.return_value.login = AsyncMock(
+            side_effect=ResideoAuthError("nope", step="credentials", code="invalid_credentials")
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"email": "test@example.com", "password": "nope"}
+        )
+    assert result["step_id"] == "invalid_auth"
+
+    # What the frontend does on a reload: GET the flow, i.e. configure with no input.
+    result = await hass.config_entries.flow.async_configure(result["flow_id"])
+    assert result["type"] is FlowResultType.MENU
+    assert result["step_id"] == "invalid_auth"
+    assert result["description_placeholders"]["detail"] == "credentials: invalid_credentials"
+
+
+async def test_login_form_remembers_the_email_on_retry(hass: HomeAssistant) -> None:
+    """A failed attempt costs a click to retry; it must not also cost retyping the email."""
+    result = await _start_login_flow(hass)
+    with patch("custom_components.resideo.config_flow.ResideoAuth") as mock_auth:
+        mock_auth.return_value.login = AsyncMock(
+            side_effect=ResideoAuthError("nope", step="credentials", code="invalid_credentials")
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"email": "test@example.com", "password": "typo"}
+        )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"next_step_id": "login"}
+    )
+    suggested = {
+        key.schema: key.description["suggested_value"]
+        for key in result["data_schema"].schema
+        if key.description
+    }
+    assert suggested == {"email": "test@example.com"}
 
 
 async def test_login_without_refresh_token_aborts(hass: HomeAssistant) -> None:
@@ -172,9 +288,15 @@ async def test_browser_flow_rejects_a_redirect_from_another_attempt(
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {CONF_REDIRECT_URL: f"{REDIRECT_URI}?code=c&state=stale"}
     )
+    assert result["type"] is FlowResultType.MENU
+    assert result["step_id"] == "state_mismatch"
+
+    # Starting the browser sign-in again issues a fresh authorization, since the old one
+    # can no longer be completed.
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"next_step_id": "browser"}
+    )
     assert result["type"] is FlowResultType.FORM
-    assert result["errors"] == {"base": "state_mismatch"}
-    # A fresh authorization is issued, since the old one can no longer be completed.
     assert result["description_placeholders"]["url"] != first_url
 
 
@@ -183,8 +305,8 @@ async def test_browser_flow_rejects_a_paste_with_no_code(hass: HomeAssistant) ->
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {CONF_REDIRECT_URL: "https://login.resideo.com/?foo=bar"}
     )
-    assert result["type"] is FlowResultType.FORM
-    assert result["errors"] == {"base": "invalid_code"}
+    assert result["type"] is FlowResultType.MENU
+    assert result["step_id"] == "invalid_code"
 
 
 async def test_browser_flow_reauth_updates_entry(
@@ -255,9 +377,9 @@ async def test_manual_token_invalid(hass: HomeAssistant) -> None:
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"], {CONF_REFRESH_TOKEN: "bad-token"}
         )
-    assert result["type"] is FlowResultType.FORM
+    assert result["type"] is FlowResultType.MENU
     # A pasted token was rejected — never phrase that as a bad email/password.
-    assert result["errors"] == {"base": "invalid_token"}
+    assert result["step_id"] == "invalid_token"
     assert result["description_placeholders"]["detail"] == "refresh: invalid_credentials"
 
 
@@ -296,6 +418,39 @@ async def test_reauth_updates_entry(
         mock_auth.return_value.login = AsyncMock(return_value=_tokens())
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"], {"email": "test@example.com", "password": "hunter2"}
+        )
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reauth_successful"
+    assert mock_config_entry.data[CONF_REFRESH_TOKEN] == "new-refresh"
+
+
+async def test_reauth_failure_menu_routes_to_the_browser_path(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Re-auth is the worse dead end — dismissing it means going back via the repair."""
+    mock_config_entry.add_to_hass(hass)
+    result = await _start_reauth(hass, mock_config_entry)
+    with patch("custom_components.resideo.config_flow.ResideoAuth") as mock_auth:
+        mock_auth.return_value.login = AsyncMock(
+            side_effect=ResideoAuthError("captcha", step="credentials", code="invalid_captcha")
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"email": "test@example.com", "password": "hunter2"}
+        )
+    assert result["type"] is FlowResultType.MENU
+    assert result["step_id"] == "captcha_required"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"next_step_id": "browser"}
+    )
+    state = parse_qs(urlparse(result["description_placeholders"]["url"]).query)["state"][0]
+    with (
+        patch("custom_components.resideo.config_flow.ResideoAuth") as mock_auth,
+        patch("custom_components.resideo.async_setup_entry", return_value=True),
+    ):
+        mock_auth.return_value.exchange_code = AsyncMock(return_value=_tokens())
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_REDIRECT_URL: f"{REDIRECT_URI}?code=c&state={state}"}
         )
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reauth_successful"

@@ -6,6 +6,10 @@ Three auth paths against the consumer API (no developer account):
     that survives a bot-detection CAPTCHA, since a human drives the page.
   - ``manual``  — paste a refresh token grabbed by proxying ``login.resideo.com``.
 
+Every failure returns to a menu of all three paths rather than re-showing the form that
+just failed: a form is a dead end in the HA frontend (no back button), so a CAPTCHA on the
+direct login would otherwise strand the user on the one path that cannot succeed.
+
 Entries are deduped by the Auth0 ``sub`` claim of the access token (the account identity),
 which also guards re-auth against silently rewiring an entry to a different account.
 """
@@ -49,8 +53,25 @@ STEP_MANUAL_SCHEMA = vol.Schema({vol.Required(CONF_REFRESH_TOKEN): str})
 STEP_BROWSER_SCHEMA = vol.Schema({vol.Required(CONF_REDIRECT_URL): str})
 
 AUTH_MENU = ["login", "browser", "manual"]
+# When Resideo itself is refusing the direct login, lead with the path that still works.
+BLOCKED_MENU = ["browser", "manual", "login"]
+BLOCKED_KEYS = {"captcha_required", "too_many_attempts"}
 
-# Auth0 error code -> form-error key. Anything unrecognised (including a failure in the
+# Every failure that gets a menu of its own. Each needs an ``async_step_<key>`` handler and a
+# matching block in strings.json — see ``_auth_menu`` for why both are mandatory.
+FAILURE_MENUS = (
+    "invalid_auth",
+    "invalid_token",
+    "captcha_required",
+    "too_many_attempts",
+    "login_failed",
+    "invalid_code",
+    "state_mismatch",
+    "cannot_connect",
+    "unknown",
+)
+
+# Auth0 error code -> failure-menu key. Anything unrecognised (including a failure in the
 # login flow's own mechanics) falls to ``login_failed`` rather than blaming the credentials.
 _AUTH_ERROR_KEYS = {
     "invalid_credentials": "invalid_auth",
@@ -64,9 +85,9 @@ _AUTH_ERROR_KEYS = {
 
 
 def _auth_error(err: ResideoAuthError, *, token_path: bool = False) -> tuple[str, str]:
-    """Map an auth failure to a ``(form-error key, detail)`` pair.
+    """Map an auth failure to a ``(menu key, detail)`` pair.
 
-    ``detail`` is interpolated into the message so a screenshot of the form is enough to
+    ``detail`` is interpolated into the message so a screenshot of the menu is enough to
     diagnose the failure — the whole point being that "Invalid authentication" alone is not.
     """
     key = _AUTH_ERROR_KEYS.get(err.code or "", "login_failed")
@@ -86,6 +107,10 @@ class ResideoConfigFlow(ConfigFlow, domain=DOMAIN):
         # Held between the two halves of the browser step: the user leaves to sign in,
         # and the PKCE verifier + state must still be here when they paste the redirect.
         self._authorize: AuthorizeRequest | None = None
+        # Last failure's detail, so a failure menu can re-render after a page reload.
+        self._detail: str = ""
+        # Last email tried, so picking "try again" does not make the user retype it.
+        self._email: str | None = None
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -97,33 +122,32 @@ class ResideoConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Email/password login via aioresideo (Auth0)."""
-        errors: dict[str, str] = {}
-        detail = ""
         if user_input is not None:
+            self._email = user_input[CONF_EMAIL]
             session = async_get_clientsession(self.hass)
             try:
                 tokens = await ResideoAuth(session).login(
                     user_input[CONF_EMAIL], user_input[CONF_PASSWORD]
                 )
             except ResideoAuthError as err:
-                errors["base"], detail = _auth_error(err)
-                _LOGGER.debug("Resideo login failed (%s): %s", errors["base"], err)
+                key, detail = _auth_error(err)
+                _LOGGER.debug("Resideo login failed (%s): %s", key, err)
+                return self._auth_menu(key, detail)
             except (ResideoConnectionError, ResideoError):
-                errors["base"] = "cannot_connect"
+                return self._auth_menu("cannot_connect")
             except Exception:
                 _LOGGER.exception("Unexpected error during Resideo login")
-                errors["base"] = "unknown"
-            else:
-                return await self._finish(
-                    tokens.get("refresh_token"),
-                    access_token=tokens.get("access_token"),
-                    email=user_input[CONF_EMAIL],
-                )
+                return self._auth_menu("unknown")
+            return await self._finish(
+                tokens.get("refresh_token"),
+                access_token=tokens.get("access_token"),
+                email=user_input[CONF_EMAIL],
+            )
         return self.async_show_form(
             step_id="login",
-            data_schema=STEP_LOGIN_SCHEMA,
-            errors=errors,
-            description_placeholders={"detail": detail},
+            data_schema=self.add_suggested_values_to_schema(
+                STEP_LOGIN_SCHEMA, {CONF_EMAIL: self._email} if self._email else None
+            ),
         )
 
     async def async_step_browser(
@@ -136,8 +160,6 @@ class ResideoConfigFlow(ConfigFlow, domain=DOMAIN):
         lands on the mobile app's custom scheme, which the browser cannot open — the URL is
         still in the address bar, and that is what gets pasted.
         """
-        errors: dict[str, str] = {}
-        detail = ""
         if self._authorize is None:
             self._authorize = build_authorize_url()
         if user_input is not None:
@@ -150,32 +172,29 @@ class ResideoConfigFlow(ConfigFlow, domain=DOMAIN):
                     code, self._authorize.code_verifier
                 )
             except ResideoAuthError as err:
-                errors["base"], detail = _auth_error(err)
-                _LOGGER.debug("Resideo browser sign-in failed (%s): %s", errors["base"], err)
+                key, detail = _auth_error(err)
+                _LOGGER.debug("Resideo browser sign-in failed (%s): %s", key, err)
                 # A spent or mismatched code can't be retried — start a fresh authorization.
                 self._authorize = build_authorize_url()
+                return self._auth_menu(key, detail)
             except (ResideoConnectionError, ResideoError):
-                errors["base"] = "cannot_connect"
+                return self._auth_menu("cannot_connect")
             except Exception:
                 _LOGGER.exception("Unexpected error during Resideo browser sign-in")
-                errors["base"] = "unknown"
-            else:
-                return await self._finish(
-                    tokens.get("refresh_token"), access_token=tokens.get("access_token")
-                )
+                return self._auth_menu("unknown")
+            return await self._finish(
+                tokens.get("refresh_token"), access_token=tokens.get("access_token")
+            )
         return self.async_show_form(
             step_id="browser",
             data_schema=STEP_BROWSER_SCHEMA,
-            errors=errors,
-            description_placeholders={"url": self._authorize.url, "detail": detail},
+            description_placeholders={"url": self._authorize.url},
         )
 
     async def async_step_manual(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Manual refresh-token entry."""
-        errors: dict[str, str] = {}
-        detail = ""
         if user_input is not None:
             session = async_get_clientsession(self.hass)
             refresh_token = user_input[CONF_REFRESH_TOKEN]
@@ -183,25 +202,94 @@ class ResideoConfigFlow(ConfigFlow, domain=DOMAIN):
             try:
                 await api.client.async_ensure_token()  # validate the token works
             except ResideoAuthError as err:
-                errors["base"], detail = _auth_error(err, token_path=True)
+                key, detail = _auth_error(err, token_path=True)
                 _LOGGER.debug("Resideo token validation failed: %s", err)
+                return self._auth_menu(key, detail)
             except (ResideoConnectionError, ResideoError):
-                errors["base"] = "cannot_connect"
+                return self._auth_menu("cannot_connect")
             except Exception:
                 _LOGGER.exception("Unexpected error validating a Resideo refresh token")
-                errors["base"] = "unknown"
-            else:
-                # The refresh may have rotated the token; persist the latest one.
-                return await self._finish(
-                    api.refresh_token or refresh_token,
-                    access_token=api.tokens.get("access_token"),
-                )
+                return self._auth_menu("unknown")
+            # The refresh may have rotated the token; persist the latest one.
+            return await self._finish(
+                api.refresh_token or refresh_token,
+                access_token=api.tokens.get("access_token"),
+            )
         return self.async_show_form(
             step_id="manual",
             data_schema=STEP_MANUAL_SCHEMA,
-            errors=errors,
+        )
+
+    def _auth_menu(self, key: str, detail: str = "") -> ConfigFlowResult:
+        """Offer the three auth paths again, explaining what just failed.
+
+        The ``step_id`` is the failure key, so every failure gets wording of its own — and
+        a handler of its own, because HA re-enters a menu by its step id when the frontend
+        re-reads the flow (a page reload), and an unknown step id aborts the flow.
+        """
+        self._detail = detail
+        return self.async_show_menu(
+            step_id=key,
+            menu_options=BLOCKED_MENU if key in BLOCKED_KEYS else AUTH_MENU,
             description_placeholders={"detail": detail},
         )
+
+    # --- Failure menus: one handler per key in ``FAILURE_MENUS``, each existing so that a
+    # reload of its menu re-renders it instead of aborting the flow.
+
+    async def async_step_invalid_auth(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Resideo rejected that email and password."""
+        return self._auth_menu("invalid_auth", self._detail)
+
+    async def async_step_invalid_token(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Resideo rejected the pasted refresh token."""
+        return self._auth_menu("invalid_token", self._detail)
+
+    async def async_step_captcha_required(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Auth0 demanded a CAPTCHA; only the browser path can clear it."""
+        return self._auth_menu("captcha_required", self._detail)
+
+    async def async_step_too_many_attempts(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Auth0 has temporarily blocked this account or address."""
+        return self._auth_menu("too_many_attempts", self._detail)
+
+    async def async_step_login_failed(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """The sign-in broke somewhere that is not the credentials."""
+        return self._auth_menu("login_failed", self._detail)
+
+    async def async_step_invalid_code(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """The pasted redirect carried no sign-in code."""
+        return self._auth_menu("invalid_code", self._detail)
+
+    async def async_step_state_mismatch(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """The pasted redirect belongs to an earlier authorization."""
+        return self._auth_menu("state_mismatch", self._detail)
+
+    async def async_step_cannot_connect(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Resideo could not be reached at all."""
+        return self._auth_menu("cannot_connect", self._detail)
+
+    async def async_step_unknown(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Something unforeseen went wrong; the traceback is in the log."""
+        return self._auth_menu("unknown", self._detail)
 
     async def async_step_reauth(
         self, entry_data: Mapping[str, Any]

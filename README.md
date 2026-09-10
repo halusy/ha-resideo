@@ -108,6 +108,9 @@ like:
 - **Refresh token** — already have an Auth0 refresh token and prefer pasting to typing? Go
   for it.
 
+Picking one isn't a commitment: any failed attempt puts you back on this list, with an
+explanation of what went wrong, so you can switch paths without restarting setup.
+
 One entry per account — adding the same account twice gets politely rejected. And if the token
 ever dies (password change, revocation), you get a re-authentication prompt instead of a
 silently broken integration.
@@ -170,11 +173,12 @@ already scrubbed — perfect for bug reports.
 diagnostics file, and a debug log covering the moment things went sideways.
 
 **Sign-in fails with a CAPTCHA.** Resideo's sign-in sometimes decides a login looks like a bot
-and demands a CAPTCHA, which Home Assistant has no way to solve — the form will say so. It's
-not your password; ordinary bad credentials get their own distinct message, so the two are
-never confused.
+and demands a CAPTCHA, which Home Assistant has no way to solve — it will say so. It's not your
+password; ordinary bad credentials get their own distinct message, so the two are never
+confused.
 
-Use **Sign in with your browser** instead. It hands you Resideo's real sign-in page, you log in
+The CAPTCHA message comes with the other sign-in methods listed right underneath it, **Sign in
+with your browser** first. It hands you Resideo's real sign-in page, you log in
 there like any other website, and you paste the resulting redirect back into Home Assistant. In
 practice the CAPTCHA doesn't even appear — Resideo's bot detection is reacting to the headless
 login, not to you. The step includes click-by-click instructions; the one thing that trips

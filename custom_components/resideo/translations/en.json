@@ -40,18 +40,88 @@
           "browser": "Sign in with your browser",
           "manual": "Paste a refresh token"
         }
+      },
+      "invalid_auth": {
+        "title": "Invalid email or password",
+        "description": "Resideo did not accept that email and password ({detail}).\n\nUse the same credentials as the Resideo / First Alert app. If they are certainly right, Resideo may be refusing the direct sign-in rather than the password — signing in through your browser gets past that.",
+        "menu_options": {
+          "login": "Try email and password again",
+          "browser": "Sign in with your browser",
+          "manual": "Paste a refresh token"
+        }
+      },
+      "invalid_token": {
+        "title": "Refresh token rejected",
+        "description": "Resideo rejected that refresh token ({detail}) — it has most likely expired or been revoked.\n\nGrab a fresh one, or sign in another way.",
+        "menu_options": {
+          "login": "Email and password",
+          "browser": "Sign in with your browser",
+          "manual": "Paste a different refresh token"
+        }
+      },
+      "captcha_required": {
+        "title": "Resideo asked for a CAPTCHA",
+        "description": "Resideo is asking for a CAPTCHA ({detail}), which Home Assistant cannot solve on its own.\n\n**Sign in with your browser** instead — you drive the page yourself there, so the CAPTCHA is simply part of signing in.",
+        "menu_options": {
+          "browser": "Sign in with your browser",
+          "manual": "Paste a refresh token",
+          "login": "Try email and password again"
+        }
+      },
+      "too_many_attempts": {
+        "title": "Too many sign-in attempts",
+        "description": "Resideo has temporarily blocked this account or IP address after repeated attempts ({detail}).\n\nWait a while before trying the direct sign-in again, or **sign in with your browser**, which goes through Resideo's own page.",
+        "menu_options": {
+          "browser": "Sign in with your browser",
+          "manual": "Paste a refresh token",
+          "login": "Try email and password again"
+        }
+      },
+      "login_failed": {
+        "title": "Sign-in failed",
+        "description": "Signing in with Resideo failed ({detail}).\n\nThis is not necessarily your password — the sign-in flow itself broke somewhere. Enable debug logging for the full response, or take one of the other paths.",
+        "menu_options": {
+          "login": "Try email and password again",
+          "browser": "Sign in with your browser",
+          "manual": "Paste a refresh token"
+        }
+      },
+      "invalid_code": {
+        "title": "No sign-in code in that address",
+        "description": "That does not look like the redirect address — it carries no sign-in code.\n\nStart the browser sign-in again and copy the whole `com.resideo.firstalert://...` address, including everything after the `?`.",
+        "menu_options": {
+          "browser": "Start the browser sign-in again",
+          "login": "Email and password",
+          "manual": "Paste a refresh token"
+        }
+      },
+      "state_mismatch": {
+        "title": "That redirect is from an earlier attempt",
+        "description": "That redirect belongs to an earlier sign-in attempt, so it can no longer be completed.\n\nStart the browser sign-in again to get a fresh link.",
+        "menu_options": {
+          "browser": "Start the browser sign-in again",
+          "login": "Email and password",
+          "manual": "Paste a refresh token"
+        }
+      },
+      "cannot_connect": {
+        "title": "Could not reach Resideo",
+        "description": "Home Assistant could not reach Resideo at all. Check this machine's internet connection, and whether Resideo's own service is up — the First Alert app on your phone is the quickest test.",
+        "menu_options": {
+          "login": "Email and password",
+          "browser": "Sign in with your browser",
+          "manual": "Paste a refresh token"
+        }
+      },
+      "unknown": {
+        "title": "Unexpected error",
+        "description": "Something unforeseen went wrong while signing in. The full traceback is in the Home Assistant log.",
+        "menu_options": {
+          "login": "Email and password",
+          "browser": "Sign in with your browser",
+          "manual": "Paste a refresh token"
+        }
       }
-    },
-    "error": {
-      "invalid_auth": "Invalid email or password.",
-      "invalid_token": "Resideo rejected that refresh token ({detail}) — it may be expired or revoked. Grab a fresh one, or sign in with your email and password.",
-      "captcha_required": "Resideo is asking for a CAPTCHA ({detail}), which Home Assistant cannot solve. Use the \"Sign in with your browser\" option instead — you solve it there yourself.",
-      "too_many_attempts": "Too many sign-in attempts — Resideo has temporarily blocked this account or IP address. Wait a while and try again, or use the \"Sign in with your browser\" option.",
-      "login_failed": "Sign-in with Resideo failed ({detail}). Enable debug logging for the full response, or try the \"Sign in with your browser\" option.",
-      "invalid_code": "That does not look like the redirect address — it carries no sign-in code. Copy the whole `com.resideo.firstalert://...` address, including everything after the `?`.",
-      "state_mismatch": "That redirect belongs to an earlier sign-in attempt. Use the link above to start a fresh one.",
-      "cannot_connect": "Failed to connect",
-      "unknown": "Unexpected error"
     },
     "abort": {
       "no_token": "No refresh token was returned by Resideo.",
