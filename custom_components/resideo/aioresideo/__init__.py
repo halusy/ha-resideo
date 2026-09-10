@@ -26,6 +26,7 @@ from .exceptions import (
     ResideoAuthError,
     ResideoConnectionError,
     ResideoError,
+    ResideoUnavailableError,
 )
 from .merge import LIVE_FEED_MERGED_PROPERTIES, apply_live_feed
 from .objects import (
@@ -217,6 +218,7 @@ __all__ = [
     "ResideoRooms",
     "ResideoStream",
     "ResideoThermostat",
+    "ResideoUnavailableError",
     "TokenUpdatedCallback",
     "__version__",
     "apply_live_feed",

@@ -6,13 +6,15 @@ import base64
 from copy import deepcopy
 
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import issue_registry as ir
 
 from custom_components.resideo.aioresideo import ResideoChangeConfirm, ResideoLiveFeed
 from custom_components.resideo.aioresideo.exceptions import (
     ResideoAuthError,
     ResideoConnectionError,
+    ResideoUnavailableError,
 )
-from custom_components.resideo.const import DOMAIN
+from custom_components.resideo.const import CLOUD_UNAVAILABLE_ISSUE, DOMAIN
 
 from .conftest import MAC, advance_time, eid, load_fixture_json, setup_integration
 
@@ -99,6 +101,50 @@ async def test_stream_error_marks_unavailable_then_push_recovers(
     stream.on_event(_live("DisplayedIndoorTemperature", {"Value": 79.0}))
     await hass.async_block_till_done()
     assert hass.states.get(temp).state == "79.0"
+
+
+async def test_stream_refusal_raises_the_repair(
+    hass: HomeAssistant, init_integration, mock_api
+) -> None:
+    """The stream is the primary data path, so during a cloud refusal it is usually what
+    notices first — its negotiate is on the same host that is doing the refusing."""
+    temp = eid(hass, "sensor", f"{MAC}_indoor_temperature")
+    mock_api.streams[0].on_error(
+        ResideoUnavailableError(
+            "POST .../ds-notification-service/Hub/negotiate -> 503",
+            service_message="The API is temporarily down for planned maintenance.",
+        )
+    )
+    await hass.async_block_till_done()
+
+    assert hass.states.get(temp).state == "unavailable"
+    issue = ir.async_get(hass).async_get_issue(
+        DOMAIN, f"{CLOUD_UNAVAILABLE_ISSUE}_{init_integration.entry_id}"
+    )
+    assert issue is not None
+    assert issue.severity is ir.IssueSeverity.ERROR
+
+
+async def test_a_503_on_a_best_effort_read_is_not_swallowed(
+    hass: HomeAssistant, init_integration, mock_api
+) -> None:
+    """Rooms / configuration / priority are best-effort and their errors are normally ignored —
+    but ResideoUnavailableError is a ResideoApiError, so without an explicit re-raise a refusal
+    would masquerade as "this thermostat has no room sensors". Those reads are on API v1 while
+    the shadow is on v2, so a version-scoped refusal would do exactly that.
+    """
+    coordinator = init_integration.runtime_data
+    mock_api.async_get_rooms.side_effect = ResideoUnavailableError(
+        "GET .../v1/devices/thermostats/x/group/0/rooms -> 503", service_message=None
+    )
+
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+
+    assert not coordinator.last_update_success
+    assert ir.async_get(hass).async_get_issue(
+        DOMAIN, f"{CLOUD_UNAVAILABLE_ISSUE}_{init_integration.entry_id}"
+    )
 
 
 async def test_stream_auth_error_starts_reauth(

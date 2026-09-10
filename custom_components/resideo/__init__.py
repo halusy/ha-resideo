@@ -20,6 +20,7 @@ from .aioresideo.exceptions import (
     ResideoConnectionError,
     ResideoError,
 )
+from .availability import async_clear_unavailable
 from .const import CONF_REFRESH_TOKEN, DOMAIN, PLATFORMS
 from .coordinator import ResideoConfigEntry, ResideoDataUpdateCoordinator
 
@@ -50,6 +51,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ResideoConfigEntry) -> b
     # Bootstrap read — capabilities + the initial snapshot can't come from the stream.
     try:
         await coordinator.async_config_entry_first_refresh()
+    except ConfigEntryNotReady as err:
+        # `async_config_entry_first_refresh` raises this *bare*, carrying the real failure only
+        # as __cause__ — and HA sets the integration card's reason from `str(exc)`, so the user
+        # is told nothing at all about why setup failed. Re-raise with the coordinator's own
+        # message, which for a refused cloud explains exactly what Resideo said.
+        reason = str(coordinator.last_exception or "")
+        if not reason:
+            raise
+        raise ConfigEntryNotReady(reason) from err.__cause__
     except ResideoAuthError as err:
         raise ConfigEntryAuthFailed(str(err)) from err
     except (ResideoConnectionError, ResideoError) as err:
@@ -67,8 +77,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ResideoConfigEntry) -> b
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ResideoConfigEntry) -> bool:
-    """Unload a config entry."""
+    """Unload a config entry.
+
+    Note this deliberately does *not* clear the cloud-unavailable repair issue: a reload runs
+    through here (reauth triggers one), and deleting the issue would reset both the user's
+    dismissal and the start time the message is built from. It is cleared on recovery, and on
+    removal by `async_remove_entry`.
+    """
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ResideoConfigEntry) -> None:
+    """Take the repair card down with the entry that raised it."""
+    async_clear_unavailable(hass, entry)
 
 
 async def async_remove_config_entry_device(

@@ -42,6 +42,12 @@ from .aioresideo.exceptions import (
     ResideoAuthError,
     ResideoConnectionError,
     ResideoError,
+    ResideoUnavailableError,
+)
+from .availability import (
+    async_clear_unavailable,
+    async_report_unavailable,
+    unavailable_reason,
 )
 from .const import DOMAIN
 
@@ -118,6 +124,9 @@ class ResideoDataUpdateCoordinator(DataUpdateCoordinator[dict[str, ResideoDevice
             self._targets = await self.api.async_get_signalr_targets()
         except ResideoAuthError as err:
             raise ConfigEntryAuthFailed(str(err)) from err
+        except ResideoUnavailableError as err:
+            async_report_unavailable(self.hass, self.config_entry, err)
+            raise UpdateFailed(unavailable_reason(err)) from err
         except (ResideoConnectionError, ResideoError) as err:
             raise UpdateFailed(str(err)) from err
         self._macs = [d.mac for d in devices if d.is_thermostat and d.mac]
@@ -145,6 +154,7 @@ class ResideoDataUpdateCoordinator(DataUpdateCoordinator[dict[str, ResideoDevice
             self._macs,
             len(self._targets),
         )
+        async_clear_unavailable(self.hass, self.config_entry)
 
     async def _async_update_data(self) -> dict[str, ResideoDeviceData]:
         """Bootstrap / resync read (NOT a periodic poll).
@@ -157,18 +167,26 @@ class ResideoDataUpdateCoordinator(DataUpdateCoordinator[dict[str, ResideoDevice
         """
         result: dict[str, ResideoDeviceData] = {}
         failures: list[str] = []
+        # Kept as the exception, not just its text: a total 503 is reported to the user very
+        # differently from an ordinary read failure (see availability.py).
+        unavailable: ResideoUnavailableError | None = None
         for mac in self._macs:
             try:
                 result[mac] = await self._async_read_device(mac)
             except ResideoAuthError as err:
                 raise ConfigEntryAuthFailed(str(err)) from err
             except (ResideoConnectionError, ResideoError) as err:
+                if isinstance(err, ResideoUnavailableError):
+                    unavailable = err
                 failures.append(f"{mac}: {err}")
                 previous = (self.data or {}).get(mac)
                 if previous is not None:
                     result[mac] = previous
         if failures:
             if len(failures) == len(self._macs):
+                if unavailable is not None:
+                    async_report_unavailable(self.hass, self.config_entry, unavailable)
+                    raise UpdateFailed(unavailable_reason(unavailable))
                 raise UpdateFailed("; ".join(failures))
             _LOGGER.warning(
                 "Resync failed for %d of %d thermostat(s): %s",
@@ -176,6 +194,8 @@ class ResideoDataUpdateCoordinator(DataUpdateCoordinator[dict[str, ResideoDevice
                 len(self._macs),
                 "; ".join(failures),
             )
+        # Something got through, so the cloud is answering us again.
+        async_clear_unavailable(self.hass, self.config_entry)
         return result
 
     async def _async_read_device(self, mac: str) -> ResideoDeviceData:
@@ -183,20 +203,33 @@ class ResideoDataUpdateCoordinator(DataUpdateCoordinator[dict[str, ResideoDevice
 
         Rooms / configuration / priority are best-effort: a stripped-down thermostat may 404
         on these, but the shadow must succeed.
+
+        A 503 is the exception to "best-effort". ``ResideoUnavailableError`` is a
+        ``ResideoApiError``, so without re-raising it first these arms would quietly turn "Resideo
+        is refusing us" into "this thermostat has no room sensors" — and since the reads are split
+        across API versions (``/priority`` and ``/group/0/rooms`` are v1, the shadow is v2 — see
+        ``aioresideo/const.py``), a version-scoped refusal would strip every room sensor off the
+        device while the shadow kept working and nothing ever reported a problem.
         """
         thermostat = await self.api.async_get_device(mac)
         try:
             rooms = await self.api.async_get_rooms(mac)
+        except ResideoUnavailableError:
+            raise
         except ResideoApiError as err:
             _LOGGER.debug("No room sensors for %s (%s)", mac, err)
             rooms = ResideoRooms({})
         try:
             configuration = await self.api.async_get_configuration(mac)
+        except ResideoUnavailableError:
+            raise
         except ResideoApiError as err:
             _LOGGER.debug("No configuration for %s (%s)", mac, err)
             configuration = ResideoConfiguration({})
         try:
             priority = await self.api.async_get_priority(mac)
+        except ResideoUnavailableError:
+            raise
         except ResideoApiError as err:
             _LOGGER.debug("No priority for %s (%s)", mac, err)
             priority = ResideoPriority({})
@@ -406,6 +439,10 @@ class ResideoDataUpdateCoordinator(DataUpdateCoordinator[dict[str, ResideoDevice
     @callback
     def _on_stream_error(self, err: Exception) -> None:
         """A sustained stream failure -> entities unavailable (reported, not masked by polling)."""
+        if isinstance(err, ResideoUnavailableError):
+            async_report_unavailable(self.hass, self.config_entry, err)
+            self.async_set_update_error(UpdateFailed(unavailable_reason(err)))
+            return
         self.async_set_update_error(UpdateFailed(str(err)))
         if isinstance(err, ResideoAuthError):
             self.config_entry.async_start_reauth(self.hass)

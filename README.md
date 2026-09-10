@@ -194,6 +194,22 @@ infrared.)
 WebSockets to `*.service.signalr.net`. The stream isn't optional, so un-block it and try
 again.
 
+**"Resideo's cloud is refusing requests", and everything went unavailable.** Every call is
+coming back as HTTP 503, and Home Assistant raises a repair notice quoting whatever Resideo's
+servers said. That response looks identical whether Resideo is having an outage or has simply
+stopped serving the address this integration uses — so open the First Alert app on your phone,
+which settles it in seconds. If the app is broken too, it's an outage: wait, and everything
+comes back on its own. If the app works normally, the endpoint has most likely been retired
+and you need a newer version of this integration. Resideo did precisely that in September
+2026, moving the consumer API to a new host and leaving the old one answering "The API is
+temporarily down for planned maintenance" indefinitely — which is why the notice never tells
+you that waiting will help.
+
+Resideo posts confirmed outages at [status.resideo.com](https://status.resideo.com). Treat a
+green status page as weak evidence, though: it reported every service operational — "First
+Alert App" included — right through the September 2026 move, while the retired host had
+already been refusing every request for well over a day. The phone app is the reliable test.
+
 ## Known limitations
 
 > [!WARNING]

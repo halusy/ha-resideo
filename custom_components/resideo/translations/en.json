@@ -151,5 +151,11 @@
         }
       }
     }
+  },
+  "issues": {
+    "cloud_unavailable": {
+      "title": "Resideo's cloud is refusing requests",
+      "description": "Home Assistant has not been able to reach Resideo since {since}, so your thermostats are unavailable. Every request comes back as HTTP 503, and Resideo's servers say: \"{message}\"\n\n**Open the First Alert app on your phone — that tells you which of two very different problems this is.**\n\n- **The app is failing too.** Resideo is having an outage. There is nothing to fix here: Home Assistant keeps retrying, and everything comes back on its own once Resideo recovers. Resideo publishes outages on its own status page.\n- **The app still works normally.** Then Resideo has most likely retired the address this integration uses, rather than taken anything down. It did exactly that in September 2026 — the consumer API moved to a new host, and the old one went on serving this same \"planned maintenance\" message indefinitely. Waiting will not fix that. Check whether a newer version of the integration is available, and open an issue if there isn't one."
+    }
   }
 }

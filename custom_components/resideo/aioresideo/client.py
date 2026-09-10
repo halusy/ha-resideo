@@ -36,7 +36,13 @@ from .const import (
     THERMOSTAT_V2,
     TOKEN_REFRESH_MARGIN,
 )
-from .exceptions import ResideoApiError, ResideoAuthError, ResideoConnectionError
+from .exceptions import (
+    ResideoApiError,
+    ResideoAuthError,
+    ResideoConnectionError,
+    ResideoUnavailableError,
+    edge_message,
+)
 from .objects.account import ResideoLocation
 
 # Called with the latest token dict whenever tokens are refreshed/rotated, so the caller
@@ -155,6 +161,10 @@ class ResideoClient:
                 raise ResideoAuthError(f"Unauthorized (401) for {method} {url}")
             if not 200 <= resp.status < 300:
                 body = await self._safe_body(resp)
+                if resp.status == 503:
+                    raise ResideoUnavailableError(
+                        f"{method} {url} -> 503", service_message=edge_message(body), body=body
+                    )
                 raise ResideoApiError(
                     f"{method} {url} -> {resp.status}", status=resp.status, body=body
                 )
@@ -259,6 +269,11 @@ class ResideoClient:
         try:
             if not 200 <= resp.status < 300:
                 body = await self._safe_body(resp)
+                # Deliberately NOT a ResideoUnavailableError even on 503: this host is Azure's
+                # (``*.service.signalr.net``), so a 503 here is an Azure blip, not Resideo
+                # refusing us. The step that *is* on Resideo's edge — and so subject to the
+                # path policy that retired the old host — is the first negotiate, which goes
+                # through ``_request`` and is classified there.
                 raise ResideoApiError(
                     f"Azure SignalR negotiate -> {resp.status}", status=resp.status, body=body
                 )

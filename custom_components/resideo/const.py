@@ -17,6 +17,11 @@ PLATFORMS: list[Platform] = [
 
 MANUFACTURER = "Resideo"
 
+# Repairs issue raised while Resideo's cloud is answering 503 (see availability.py). The
+# translation key is this bare string; the issue *id* is suffixed with the entry id so two
+# accounts get their own card.
+CLOUD_UNAVAILABLE_ISSUE = "cloud_unavailable"
+
 # --- config entry data keys --------------------------------------------------
 CONF_REFRESH_TOKEN = "refresh_token"
 

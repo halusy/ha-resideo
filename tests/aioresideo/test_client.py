@@ -24,6 +24,7 @@ from custom_components.resideo.aioresideo.exceptions import (
     ResideoApiError,
     ResideoAuthError,
     ResideoConnectionError,
+    ResideoUnavailableError,
 )
 
 MAC = "AABBCCDDEEFF"
@@ -146,6 +147,53 @@ async def test_api_error_carries_status_and_body(session) -> None:
             await client.get_device(MAC)
     assert excinfo.value.status == 404
     assert excinfo.value.body == {"error": "no such device"}
+
+
+# Resideo's edge answers a refused request with this, verbatim — captured live from
+# api.resideo.com, which has served it for every /ris-public-api/* call since Sept 2026.
+MAINTENANCE_BODY = {
+    "statusCode": 503,
+    "message": "The API is temporarily down for planned maintenance. Please try again later.",
+}
+
+
+async def test_503_is_an_unavailable_error_carrying_resideos_own_words(session) -> None:
+    """A refused request must be distinguishable from any other failure, and must keep the
+    text verbatim — it is the only thing Resideo tells the user."""
+    client = _fresh_client(session)
+    with aioresponses() as m:
+        m.get(DEVICE_URL, status=503, payload=MAINTENANCE_BODY)
+        with pytest.raises(ResideoUnavailableError) as excinfo:
+            await client.get_device(MAC)
+    err = excinfo.value
+    # Still an API error, so every existing `except ResideoApiError` arm keeps working.
+    assert isinstance(err, ResideoApiError)
+    assert err.status == 503
+    assert err.service_message == MAINTENANCE_BODY["message"]
+
+
+async def test_503_without_a_json_body_still_classifies(session) -> None:
+    """Front Door blanket blocks often return HTML or nothing — the classification can't
+    depend on a parseable body."""
+    client = _fresh_client(session)
+    with aioresponses() as m:
+        m.get(DEVICE_URL, status=503, body="<html>Service Unavailable</html>")
+        with pytest.raises(ResideoUnavailableError) as excinfo:
+            await client.get_device(MAC)
+    assert excinfo.value.service_message is None
+
+
+async def test_other_5xx_stays_a_plain_api_error(session) -> None:
+    """502/504 are 'the backend broke', a genuinely transient story that must not be
+    reported to the user as Resideo refusing us."""
+    client = _fresh_client(session)
+    for status in (500, 502, 504):
+        with aioresponses() as m:
+            m.get(DEVICE_URL, status=status)
+            with pytest.raises(ResideoApiError) as excinfo:
+                await client.get_device(MAC)
+        assert not isinstance(excinfo.value, ResideoUnavailableError)
+        assert excinfo.value.status == status
 
 
 async def test_concurrent_refresh_is_single_flight(session) -> None:
