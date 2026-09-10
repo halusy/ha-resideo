@@ -1,6 +1,6 @@
 # aioresideo — vendored client reference
 
-Async Python client for the **private Resideo consumer API** at `api.resideo.com` — the same
+Async Python client for the **private Resideo consumer API** at `api.ha.resideo.com` — the same
 backend the Resideo / First Alert mobile app uses. It authenticates through the app's own public
 **Auth0** client with your normal Resideo email/password (or a refresh token), so **no
 `developer.honeywellhome.com` account is required**.
@@ -78,7 +78,7 @@ reconnecting shortly before `SubscriptionExpiration` (it can't be extended in pl
   last ~1h; refresh tokens rotate (refreshes are serialized in-process — Auth0 reuse detection
   can revoke the grant on a concurrent double-refresh).
 - Every API call sends `Authorization: Bearer <token>` **and**
-  `Ocp-Apim-Subscription-Key: <prod APIM key>` (mandatory on the `devsrv` command service).
+  `Ocp-Apim-Subscription-Key: <prod APIM key>` (mandatory on the command service).
 - Writes are async: they return `202 {"TransactionId": ...}`; re-read state to confirm.
 
 ## Errors

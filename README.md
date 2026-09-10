@@ -115,7 +115,7 @@ silently broken integration.
 ## Data updates
 
 This integration is `cloud_push`: after one REST bootstrap against Resideo's
-native API at `api.resideo.com` (the same backend the app uses), it parks on a persistent
+native API at `api.ha.resideo.com` (the same backend the app uses), it parks on a persistent
 Azure SignalR stream — so thermostat, app, and schedule changes land in Home Assistant in
 **~1–3 seconds**, including the ones someone makes on the wall. Your own commands show up
 instantly (optimistically), get confirmed by the stream, then double-checked by a quiet

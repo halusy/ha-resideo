@@ -1,4 +1,4 @@
-"""aioresideo — async client for the private Resideo consumer API (api.resideo.com).
+"""aioresideo — async client for the private Resideo consumer API (api.ha.resideo.com).
 
 Public surface:
   - :class:`Resideo`        — high-level facade returning typed models (use this from an app).

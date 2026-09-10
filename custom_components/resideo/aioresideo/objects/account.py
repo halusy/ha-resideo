@@ -25,7 +25,7 @@ class ResideoLocation:
 class ResideoAccountDevice(ResideoBaseObject):
     """A device flattened from the consumer account graph by ``ResideoClient.iter_devices``.
 
-    - ``device_id`` / ``mac`` is the raw **MAC** (e.g. ``5CFCE1B7F5BA``) — what the ``devsrv``
+    - ``device_id`` / ``mac`` is the raw **MAC** (e.g. ``5CFCE1B7F5BA``) — what the thermostat
       device endpoints key on.
     - ``global_id`` is a base64 GraphQL global id of the form ``base64("<Type>:<id>")`` —
       e.g. decoding ``THlyaWNU…`` yields ``LyricThermostatDevice:5CFCE1B7F5BA``.
@@ -46,7 +46,7 @@ class ResideoAccountDevice(ResideoBaseObject):
     def device_id(self) -> str | None:
         return self.attributes.get("deviceId")
 
-    # Alias — the devsrv endpoints call this the MAC.
+    # Alias — the thermostat endpoints call this the MAC.
     mac = device_id
 
     @property

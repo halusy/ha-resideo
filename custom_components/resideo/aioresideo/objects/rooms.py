@@ -1,4 +1,4 @@
-"""Rooms + accessory models (from GET /devsrv/api/v2/device/{mac}/group/0/rooms).
+"""Rooms + accessory models (from GET .../devices/thermostats/{mac}/group/0/rooms (v1)).
 
 This is the authoritative per-accessory **value** source (live temperature/humidity/CO2/TVOC/
 RSSI/battery), see ``resideo-api-spec.md`` §3. Shape::

@@ -1,4 +1,4 @@
-"""Thermostat capabilities model (from GET /devsrv/api/v2/device/{mac}/configuration).
+"""Thermostat capabilities model (from GET .../devices/thermostats/{mac}/configuration (v2)).
 
 See ``resideo-api-spec.md`` §6. Fixture: ``tests/fixtures/003_configuration.json``.
 """

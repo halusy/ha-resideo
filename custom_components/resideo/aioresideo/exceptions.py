@@ -32,7 +32,7 @@ class ResideoAuthError(ResideoError):
 
 
 class ResideoConnectionError(ResideoError):
-    """Network/transport error talking to api.resideo.com (timeouts, DNS, TLS, ...)."""
+    """Network/transport error talking to api.ha.resideo.com (timeouts, DNS, TLS, ...)."""
 
 
 class ResideoApiError(ResideoError):

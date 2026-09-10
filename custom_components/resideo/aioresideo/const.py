@@ -1,4 +1,4 @@
-"""Constants for aioresideo — the private Resideo consumer API (api.resideo.com).
+"""Constants for aioresideo — the private Resideo consumer API (api.ha.resideo.com).
 
 These values are reverse-engineered from the Resideo / First Alert mobile app and
 verified live (see ``resideo-api-spec.md`` §1). They use the app's own public Auth0
@@ -31,16 +31,26 @@ AUTH0_CLIENT_APP = (
     "IjIuMTAuMCIsImlPUyI6IjI2LjEiLCJzd2lmdCI6IjUueCJ9fQ"
 )
 
-# --- api.resideo.com ---------------------------------------------------------
-API_BASE_URL = "https://api.resideo.com"
+# --- api.ha.resideo.com ------------------------------------------------------
+# Resideo moved the consumer API here in Sept 2026 (app 2.26.0; its config ships in the APK at
+# flutter_assets/asset_bundles/secure/config/device_api_v2.23.0.json). The old api.resideo.com
+# now answers every consumer call with a canned 503 "planned maintenance" body — that host is
+# deprecated, not down, so there is nothing to fall back to.
+API_BASE_URL = "https://api.ha.resideo.com"
 
-# Azure APIM subscription key (prod) — mandatory on the devsrv command service.
+# Azure APIM subscription key (prod) — mandatory on the command service. Unchanged by the move.
 OCP_APIM_SUBSCRIPTION_KEY = "b60885e8a9b44680a29ea1f03452878a"
 
 # Service bases (see resideo-api-spec.md §2). ``{mac}`` = raw device MAC, e.g. 5CFCE1B7F5BA.
-DEVSRV_DEVICE = "/devsrv/api/v2/device/{mac}"  # thermostat state + commands (primary)
-RIS_PUBLIC_API = "/ris-public-api/api/v1"
-ACCOUNTS_ENDPOINT = f"{RIS_PUBLIC_API}/accounts"
+RIS_PUBLIC_API = "/ris-public-api/api"
+ACCOUNTS_ENDPOINT = f"{RIS_PUBLIC_API}/v1/accounts"
+
+# The move split what ``devsrv`` served under one path across two API versions **whose response
+# shapes differ**, so each call must use the version matching what the models parse:
+#   v2 -> the ``{DeviceId, Reported, Desired}`` wrapper devsrv returned: the shadow + /configuration
+#   v1 -> flat bodies: /priority and /group/0/rooms (both 404 under v2), and every PUT command
+THERMOSTAT_V2 = f"{RIS_PUBLIC_API}/v2/devices/thermostats/{{mac}}"
+THERMOSTAT_V1 = f"{RIS_PUBLIC_API}/v1/devices/thermostats/{{mac}}"
 
 # Every write body carries this channel id; writes return ``202 {"TransactionId": ...}``.
 DEFAULT_CHANNEL_ID = "ds-notification-service"
@@ -53,9 +63,8 @@ REQUEST_TIMEOUT = 30  # seconds
 TOKEN_REFRESH_MARGIN = 300  # refresh when <5 min to access-token expiry
 
 # --- real-time push (Azure SignalR; see resideo-api-spec.md §9) ---------------
-SIGNALR_NEGOTIATE_URL = (
-    "https://ds-notification-service.prod.titans.cloud/Hub/negotiate?negotiateVersion=1"
-)
+# Also moved with the API: was ds-notification-service.prod.titans.cloud/Hub/negotiate.
+SIGNALR_NEGOTIATE_URL = f"{API_BASE_URL}/ds-notification-service/Hub/negotiate?negotiateVersion=1"
 SIGNALR_RECORD_SEPARATOR = "\x1e"  # SignalR frame delimiter
 SIGNALR_HANDSHAKE = {"protocol": "json", "version": 1}
 SIGNALR_PING_INTERVAL = 15  # seconds — own keepalive ping {"type":6}

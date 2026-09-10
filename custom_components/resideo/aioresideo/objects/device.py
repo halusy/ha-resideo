@@ -1,4 +1,4 @@
-"""Thermostat device-shadow model (from GET /devsrv/api/v2/device/{mac}).
+"""Thermostat device-shadow model (from GET .../devices/thermostats/{mac} (v2)).
 
 Wraps ``{DeviceId, Reported{...}, Desired{...}}``. The ``Reported`` block is the live device
 state; see ``resideo-api-spec.md`` §5. Fixture: ``tests/fixtures/device.json``.

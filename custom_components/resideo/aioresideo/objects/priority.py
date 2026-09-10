@@ -1,4 +1,4 @@
-"""Room-priority model (from GET /devsrv/api/v2/device/{mac}/priority).
+"""Room-priority model (from GET .../devices/thermostats/{mac}/priority (v1)).
 
 This endpoint reports the room *priority/selection* (which rooms drive the thermostat). The
 live per-accessory sensor *values* live in :mod:`aioresideo.objects.rooms` (``/group/0/rooms``).

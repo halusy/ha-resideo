@@ -120,7 +120,7 @@ def test_iter_devices_finds_thermostat(accounts: dict) -> None:
 
 
 def test_write_contract_shape(cool_setpoint_write: dict) -> None:
-    """Documents the proven devsrv write contract (spec §4)."""
+    """Documents the proven thermostat write contract (spec §4)."""
     assert cool_setpoint_write["status"] == 202
     body = cool_setpoint_write["request_body"]
     assert body["ChannelId"] == "ds-notification-service"

@@ -17,6 +17,8 @@ from custom_components.resideo.aioresideo.const import (
     API_BASE_URL,
     OAUTH_TOKEN_URL,
     OCP_APIM_SUBSCRIPTION_KEY,
+    THERMOSTAT_V1,
+    THERMOSTAT_V2,
 )
 from custom_components.resideo.aioresideo.exceptions import (
     ResideoApiError,
@@ -25,7 +27,10 @@ from custom_components.resideo.aioresideo.exceptions import (
 )
 
 MAC = "AABBCCDDEEFF"
-DEVICE_URL = f"{API_BASE_URL}/devsrv/api/v2/device/{MAC}"
+# Reads of the shadow/configuration use v2 (the {DeviceId, Reported, Desired} wrapper); /priority,
+# /group/0/rooms and every command use v1. See const.py.
+DEVICE_URL = f"{API_BASE_URL}{THERMOSTAT_V2.format(mac=MAC)}"
+DEVICE_URL_V1 = f"{API_BASE_URL}{THERMOSTAT_V1.format(mac=MAC)}"
 
 
 @pytest.fixture
@@ -65,7 +70,7 @@ async def test_request_sends_required_headers(session) -> None:
 
 
 async def test_write_carries_channel_id_and_returns_transaction(session) -> None:
-    """devsrv writes inject ChannelId and hand back the 202 TransactionId body."""
+    """Writes inject ChannelId and hand back the 202 TransactionId body."""
     client = _fresh_client(session)
     seen_body: dict = {}
 
@@ -74,7 +79,7 @@ async def test_write_carries_channel_id_and_returns_transaction(session) -> None
         return CallbackResult(status=202, payload={"TransactionId": "tx-1"})
 
     with aioresponses() as m:
-        m.put(f"{DEVICE_URL}/coolSetpoint", callback=capture)
+        m.put(f"{DEVICE_URL_V1}/coolSetpoint", callback=capture)
         result = await client.set_cool_setpoint(MAC, 74)
 
     assert result == {"TransactionId": "tx-1"}

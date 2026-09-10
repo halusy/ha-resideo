@@ -1,10 +1,10 @@
-"""Authenticated HTTP client for the Resideo consumer API (api.resideo.com).
+"""Authenticated HTTP client for the Resideo consumer API (api.ha.resideo.com).
 
 Async (aiohttp) port of the proven client in ``spikes/resideo_consumer.py``. Owns token
 lifecycle (refresh on expiry via :class:`~aioresideo.auth.ResideoAuth`) and injects the two
 mandatory headers on every call: the bearer token and the Azure APIM subscription key.
 
-Reads return parsed JSON. Writes (``PUT`` commands on the ``devsrv`` service) carry a
+Reads return parsed JSON. Writes (``PUT`` commands under the thermostat endpoint) carry a
 ``ChannelId`` and return ``202 {"TransactionId": ...}`` — the device applies them within a
 few seconds, so callers should re-read state to confirm.
 """
@@ -28,11 +28,12 @@ from .const import (
     API_BASE_URL,
     APP_USER_AGENT,
     DEFAULT_CHANNEL_ID,
-    DEVSRV_DEVICE,
     OCP_APIM_SUBSCRIPTION_KEY,
     REQUEST_TIMEOUT,
     SETPOINT_PERMANENT_HOLD,
     SIGNALR_NEGOTIATE_URL,
+    THERMOSTAT_V1,
+    THERMOSTAT_V2,
     TOKEN_REFRESH_MARGIN,
 )
 from .exceptions import ResideoApiError, ResideoAuthError, ResideoConnectionError
@@ -46,7 +47,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class ResideoClient:
-    """Token-managing, header-injecting client for api.resideo.com."""
+    """Token-managing, header-injecting client for api.ha.resideo.com."""
 
     def __init__(
         self,
@@ -129,7 +130,7 @@ class ResideoClient:
             "Authorization": f"Bearer {token}",
             "Accept": "application/json",
             "Content-Type": "application/json",
-            # Azure APIM subscription key (prod) — required by the devsrv command service.
+            # Azure APIM subscription key (prod) — required by the command service.
             "Ocp-Apim-Subscription-Key": OCP_APIM_SUBSCRIPTION_KEY,
             "User-Agent": APP_USER_AGENT,
         }
@@ -196,20 +197,21 @@ class ResideoClient:
         return await self.get(ACCOUNTS_ENDPOINT)
 
     async def get_device(self, mac: str) -> dict[str, Any]:
-        """Full device shadow: ``{DeviceId, Reported{...}, Desired{...}}`` (spec §5)."""
-        return await self.get(DEVSRV_DEVICE.format(mac=mac))
+        """Full device shadow: ``{DeviceId, Reported{...}, Desired{...}}`` (spec §5). v2 — the
+        v1 path returns the same data *flattened*, which the models don't parse."""
+        return await self.get(THERMOSTAT_V2.format(mac=mac))
 
     async def get_configuration(self, mac: str) -> dict[str, Any]:
-        """Device capabilities / allowed value sets (spec §6)."""
-        return await self.get(DEVSRV_DEVICE.format(mac=mac) + "/configuration")
+        """Device capabilities / allowed value sets (spec §6). v2, same wrapper as the shadow."""
+        return await self.get(THERMOSTAT_V2.format(mac=mac) + "/configuration")
 
     async def get_priority(self, mac: str) -> dict[str, Any]:
-        """Room priority + per-room aggregates (spec §3 ``/priority``)."""
-        return await self.get(DEVSRV_DEVICE.format(mac=mac) + "/priority")
+        """Room priority + per-room aggregates (spec §3 ``/priority``). v1 only — 404s under v2."""
+        return await self.get(THERMOSTAT_V1.format(mac=mac) + "/priority")
 
     async def get_rooms(self, mac: str) -> dict[str, Any]:
-        """Rooms + per-accessory sensor values (spec §3 ``/group/0/rooms``)."""
-        return await self.get(DEVSRV_DEVICE.format(mac=mac) + "/group/0/rooms")
+        """Rooms + per-accessory sensor values (spec §3). v1 only — 404s under v2."""
+        return await self.get(THERMOSTAT_V1.format(mac=mac) + "/group/0/rooms")
 
     # -- real-time push (SignalR; see resideo-api-spec.md §9.2) ---------------
     async def async_signalr_negotiate(self) -> dict[str, str]:
@@ -267,12 +269,17 @@ class ResideoClient:
         finally:
             await resp.release()
 
-    # -- writes (devsrv commands; see resideo-api-spec.md §4) -----------------
+    # -- writes (thermostat commands; see resideo-api-spec.md §4) -------------
     async def _command(self, mac: str, command: str, body: dict[str, Any]) -> dict[str, Any]:
-        """PUT a devsrv command. Injects ``ChannelId``; returns ``{"TransactionId": ...}``."""
+        """PUT a thermostat command. Injects ``ChannelId``; returns ``{"TransactionId": ...}``.
+
+        ⛔ Never probe an unknown command with a bare ``{"ChannelId"}`` body: the cloud accepts
+        it and applies a default. ``systemSwitch`` that way switched a live thermostat **Off**
+        (2026-09-10). To test a route, send its current value back as a no-op instead.
+        """
         payload = {**body, "ChannelId": DEFAULT_CHANNEL_ID}
         _LOGGER.debug("command %s mac=%s body=%s", command, mac, payload)
-        result = await self.put(DEVSRV_DEVICE.format(mac=mac) + "/" + command, json=payload)
+        result = await self.put(THERMOSTAT_V1.format(mac=mac) + "/" + command, json=payload)
         _LOGGER.debug("command %s accepted -> %s", command, result)
         return result
 
