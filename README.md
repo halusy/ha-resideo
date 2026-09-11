@@ -182,20 +182,24 @@ There are two reasons it can fail, each with a clear symptom and fix.
 and other older **Lyric**-branded units — run on a separate, older Resideo cloud that this
 integration can't reach. It's not about the model number: a **T5** or **T6** set up in the
 **First Alert** app is fine; a **Lyric**-branded thermostat is not. The quick test is which app
-shows it — if it appears in **First Alert**, it works here; if it only shows in the **Resideo**
-app (the one formerly called **Honeywell Home**), use Home Assistant's built-in
-[Lyric](https://www.home-assistant.io/integrations/lyric/) integration instead.
+shows it — if it appears in **First Alert**, it works here. If it only shows in the **Resideo**
+app (the one formerly called **Honeywell Home**), a supported model can be moved over by
+following [Resideo's instructions][switch-apps]; a **Lyric**-branded one can't, so use Home
+Assistant's built-in [Lyric](https://www.home-assistant.io/integrations/lyric/) integration for
+those.
 
 > **Symptom:** sign-in succeeds, then setup fails with _"No supported thermostats in this
 > Resideo account."_
 
-**2. Your account is on Resideo's older login.** Resideo is moving accounts onto the newer login
-that the **First Alert** app uses, and the old one is a completely separate sign-in. Until yours
-is moved, the same email and password that work in the **Resideo** app (formerly **Honeywell
-Home**) are rejected here. **Fix:** open that **Resideo** app and complete any prompt to upgrade
-or move your account to the new First Alert experience — then sign in here again.
+**2. Your account is on Resideo's older login.** The **First Alert** app uses a newer login, and
+the old one — behind the **Resideo** app (formerly **Honeywell Home**) — is a completely separate
+sign-in. Until your thermostat is moved over, the same email and password that work in the old app
+are rejected here. **Fix:** move it to the First Alert app by following Resideo's own guide,
+[Switching from the Resideo app to the First Alert app][switch-apps], then sign in here again.
 
 > **Symptom:** sign-in is **rejected**, even though the password is definitely right.
+
+[switch-apps]: https://www.resideo.com/us/en/support/if-i-switch-from-the-resideo-app-to-the-first-alert-app-what-will-happen-to-my-current-integrations/
 
 > [!NOTE]
 > **Total Connect Comfort** (older thermostats) and **Total Connect 2.0** (security systems) are
@@ -234,11 +238,10 @@ login, not to you. The step includes click-by-click instructions; the one thing 
 people up is that your browser's Network panel has to be open **before** you sign in.
 
 **Sign-in is rejected, but the same password works in your phone app.** Your account is still on
-Resideo's older login — it hasn't been moved to the newer one the **First Alert** app (and this
-integration) uses. That older login is the **Resideo** app, formerly **Honeywell Home**; open it
-and complete any prompt to upgrade or move your account to the new First Alert experience, then
-sign in here again. See [Supported devices](#supported-devices) for the two setup failures and
-their fixes.
+Resideo's older login — the one behind the **Resideo** app (formerly **Honeywell Home**) — not
+the newer one the **First Alert** app and this integration use. Move your thermostat to First
+Alert by following [Resideo's instructions][switch-apps], then sign in here again. See
+[Supported devices](#supported-devices) for the two setup failures and their fixes.
 
 **Setup fails with "No supported thermostats in this Resideo account."** Your sign-in worked —
 the account just holds nothing this integration can drive. The message lists what it *did* find,
