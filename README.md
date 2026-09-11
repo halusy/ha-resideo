@@ -219,8 +219,9 @@ logger:
 ```
 
 **Download diagnostics.** On the integration (or any device) page: ⋮ → **Download
-diagnostics**. It's the raw device state with tokens, serial numbers, and MAC addresses
-already scrubbed — perfect for bug reports.
+diagnostics**. It's the raw device state plus your account's regional settings (country,
+locale, time zone), with tokens, serial numbers, MAC addresses, and anything identifying you
+or your home already scrubbed — perfect for bug reports.
 
 **Filing an issue?** Bring receipts: the Home Assistant and integration versions, the
 diagnostics file, and a debug log covering the moment things went sideways.

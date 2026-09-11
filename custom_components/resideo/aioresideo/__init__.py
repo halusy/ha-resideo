@@ -78,6 +78,10 @@ class Resideo:
         return self.client.tokens
 
     # -- discovery ------------------------------------------------------------
+    async def async_get_accounts(self) -> dict[str, Any]:
+        """The raw consumer account graph (users -> accounts -> locations -> devices)."""
+        return await self.client.get_accounts()
+
     async def async_get_devices(self) -> list[ResideoAccountDevice]:
         """All devices in the consumer account graph."""
         accounts = await self.client.get_accounts()

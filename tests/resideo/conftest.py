@@ -130,6 +130,7 @@ def mock_api(
     api = AsyncMock(spec=Resideo)
     api.refresh_token = "refresh-token"
 
+    api.async_get_accounts.side_effect = lambda: deepcopy(accounts_data)
     api.async_get_devices.side_effect = lambda: [
         ResideoAccountDevice(x) for x in ResideoClient.iter_devices(accounts_data)
     ]
