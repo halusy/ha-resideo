@@ -150,7 +150,10 @@ def mock_api(
         deepcopy(configuration_data)
     )
     api.async_get_priority.side_effect = lambda mac: ResideoPriority(
-        {"PriorityStatus": "NoHold", "Priority": {"PriorityType": "PickARoom", "SelectedRooms": []}}
+        {
+            "PriorityStatus": "NoHold",
+            "Priority": {"PriorityType": "PickARoom", "SelectedRooms": [1]},
+        }
     )
     for name in WRITE_METHODS:
         getattr(api, name).side_effect = None

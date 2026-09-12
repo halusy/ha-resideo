@@ -2,7 +2,7 @@
 
 This endpoint reports the room *priority/selection* (which rooms drive the thermostat). The
 live per-accessory sensor *values* live in :mod:`aioresideo.objects.rooms` (``/group/0/rooms``).
-See ``resideo-api-spec.md`` §3. Used by the (future) room-priority select entity.
+See ``resideo-api-spec.md`` §3. Used by the room-priority select entity.
 """
 
 from __future__ import annotations

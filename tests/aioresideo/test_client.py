@@ -89,6 +89,31 @@ async def test_write_carries_channel_id_and_returns_transaction(session) -> None
     assert seen_body["SetpointStatus"] == "PermanentHold"
 
 
+async def test_set_priority_preserves_the_command_contract(session) -> None:
+    """The priority command takes its mode, selected room ids, and current status together."""
+    client = _fresh_client(session)
+    seen_body: dict = {}
+
+    def capture(url, **kwargs):
+        seen_body.update(kwargs["json"])
+        return CallbackResult(status=202, payload={"TransactionId": "tx-1"})
+
+    with aioresponses() as m:
+        m.put(f"{DEVICE_URL_V1}/priority", callback=capture)
+        result = await client.set_priority(MAC, "FollowMe", [1, 3], status="NoHold")
+
+    assert result == {"TransactionId": "tx-1"}
+    assert seen_body == {
+        "ChannelId": "ds-notification-service",
+        "PriorityStatus": "NoHold",
+        "CurrentPriority": {
+            "PriorityType": "FollowMe",
+            "SelectedRooms": [1, 3],
+            "Rooms": None,
+        },
+    }
+
+
 async def test_401_refreshes_and_retries_once(session) -> None:
     """A stale-token 401 forces a refresh and retries exactly once with the new token."""
     client = _fresh_client(session)

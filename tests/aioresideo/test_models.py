@@ -8,6 +8,7 @@ from __future__ import annotations
 from custom_components.resideo.aioresideo import (
     ResideoClient,
     ResideoConfiguration,
+    ResideoPriority,
     ResideoRooms,
     ResideoThermostat,
 )
@@ -156,3 +157,15 @@ def test_rooms_and_accessories(rooms: dict) -> None:
     assert acc.exclude_motion is False
     assert acc.software_revision == "2.1.5.0"
     assert acc.serial_number == "000000000000"
+
+
+def test_room_priority() -> None:
+    priority = ResideoPriority(
+        {
+            "PriorityStatus": "NoHold",
+            "Priority": {"PriorityType": "PickARoom", "SelectedRooms": [1, 3]},
+        }
+    )
+    assert priority.priority_status == "NoHold"
+    assert priority.priority_type == "PickARoom"
+    assert priority.selected_rooms == [1, 3]

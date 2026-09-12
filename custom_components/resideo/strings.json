@@ -198,7 +198,9 @@
       "exclude_temperature": { "name": "Exclude temperature" }
     },
     "select": {
-      "occupancy_sensitivity": { "name": "Occupancy sensitivity" }
+      "occupancy_sensitivity": { "name": "Occupancy sensitivity" },
+      "room_priority": { "name": "Room priority" },
+      "priority_room": { "name": "Priority room" }
     },
     "number": {
       "freeze_protection_low_limit": { "name": "Freeze protection floor" },
