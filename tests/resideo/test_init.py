@@ -291,6 +291,21 @@ async def test_remove_config_entry_device(hass: HomeAssistant, init_integration)
     assert await async_remove_config_entry_device(hass, entry, stale) is True
 
 
+async def test_remote_sensor_device_uses_registered_thermostat_as_parent(
+    hass: HomeAssistant, init_integration
+) -> None:
+    """Child room sensors reference the thermostat's device-registry ID."""
+    registry = dr.async_get(hass)
+    parent = registry.async_get_device(identifiers={(DOMAIN, MAC)})
+    child = registry.async_get_device(
+        identifiers={(DOMAIN, f"{MAC}_room1_acc1")}
+    )
+
+    assert parent is not None
+    assert child is not None
+    assert child.via_device_id == parent.id
+
+
 async def test_token_rotation_persisted(
     hass: HomeAssistant, mock_config_entry, mock_api
 ) -> None:

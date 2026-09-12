@@ -128,6 +128,9 @@ class ResideoAccessoryEntity(ResideoEntity):
     @property
     def device_info(self) -> DeviceInfo:
         accessory = self.accessory
+        parent = dr.async_get(self.hass).async_get_device(
+            identifiers={(DOMAIN, self._mac)}
+        )
         return DeviceInfo(
             identifiers={(DOMAIN, f"{self._mac}_room{self._room_id}_acc{self._accessory_id}")},
             name=self._room_name or f"Resideo room {self._room_id}",
@@ -135,7 +138,9 @@ class ResideoAccessoryEntity(ResideoEntity):
             model=self._accessory_model,
             sw_version=accessory.software_revision if accessory else None,
             serial_number=accessory.serial_number if accessory else None,
-            via_device=(DOMAIN, self._mac),
+            # ``via_device`` was removed from Home Assistant's device registry API.  Its
+            # replacement is the registered parent's device ID, not its identifiers tuple.
+            via_device_id=parent.id if parent else None,
         )
 
 

@@ -21,7 +21,7 @@ from .aioresideo.exceptions import (
     ResideoError,
 )
 from .availability import async_clear_unavailable
-from .const import CONF_REFRESH_TOKEN, DOMAIN, PLATFORMS
+from .const import CONF_REFRESH_TOKEN, DOMAIN, MANUFACTURER, PLATFORMS
 from .coordinator import ResideoConfigEntry, ResideoDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -66,6 +66,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ResideoConfigEntry) -> b
         raise ConfigEntryNotReady(str(err)) from err
 
     entry.runtime_data = coordinator
+
+    # Register thermostat devices before setting up platforms.  Remote room-sensor entities use
+    # the thermostat's registry ID as ``via_device_id``; creating parents here makes that
+    # relationship independent of platform setup order.
+    registry = dr.async_get(hass)
+    for mac, data in coordinator.data.items():
+        thermostat = data.thermostat
+        registry.async_get_or_create(
+            config_entry_id=entry.entry_id,
+            identifiers={(DOMAIN, mac)},
+            connections={(dr.CONNECTION_NETWORK_MAC, dr.format_mac(mac))},
+            manufacturer=MANUFACTURER,
+            name=thermostat.name or f"Resideo {mac}",
+            model=thermostat.model,
+            sw_version=thermostat.firmware_version,
+            serial_number=thermostat.serial_number,
+        )
 
     # Push is the data source: require the SignalR stream to come up. A failure raises
     # ConfigEntryNotReady / ConfigEntryAuthFailed (HA retries setup); we never fall back to polling.
